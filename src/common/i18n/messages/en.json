@@ -1,0 +1,49 @@
+{
+  "Metadata": {
+    "title": "MC Send Notify",
+    "description": "Automated email communications for Multicómputos customers."
+  },
+  "Common": {
+    "skipToContent": "Skip to content",
+    "toggleTheme": "Switch between light and dark mode",
+    "themeLight": "Light mode",
+    "themeDark": "Dark mode",
+    "language": "Language",
+    "languages": {
+      "es": "Español",
+      "en": "English"
+    },
+    "brandAlt": "Multicómputos, optimizing the future together"
+  },
+  "Home": {
+    "eyebrow": "Communications platform",
+    "title": "Send updates and digests to your customers, effortlessly",
+    "subtitle": "Manage campaigns per application, draft with AI, attach documents with thumbnails and automate recurring sends.",
+    "statusLink": "View platform status",
+    "featuresTitle": "What's included",
+    "features": {
+      "tenants": {
+        "title": "Multi-application",
+        "description": "Each product has its own contacts, templates, senders and branding, fully isolated."
+      },
+      "ai": {
+        "title": "AI-assisted writing",
+        "description": "Draft from release notes, translate and suggest subject lines with human approval."
+      },
+      "documents": {
+        "title": "Documents with thumbnails",
+        "description": "HTML, Markdown, PDF, Word and PowerPoint, with a presentation preview inside the email."
+      },
+      "automation": {
+        "title": "Automated sends",
+        "description": "Weekly digests and scheduled campaigns across multiple email providers."
+      }
+    },
+    "footer": "Built by Ing. Heri Espinosa for Multicómputos."
+  },
+  "NotFound": {
+    "title": "Page not found",
+    "description": "The address you are looking for does not exist or has moved.",
+    "backHome": "Back to home"
+  }
+}

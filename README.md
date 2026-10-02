@@ -1,0 +1,106 @@
+# MC Send Notify
+
+Gestor multi-tenant de envío automático de correos para **Multicómputos**. Cada aplicación o producto (MCSupport, MCLog, etc.) es un _tenant_ aislado con sus propios contactos, plantillas, remitentes, marca y proveedores. La plataforma permite enviar actualizaciones y resúmenes semanales a los clientes, redactarlos con IA, adjuntar documentos con miniatura y automatizar los envíos recurrentes.
+
+> **Estado:** Fase 0 completada (andamiaje, infraestructura, observabilidad, tema de marca e i18n). Las siguientes fases están en el [roadmap](#roadmap).
+
+## Stack
+
+| Capa           | Tecnología                                                                                               |
+| -------------- | -------------------------------------------------------------------------------------------------------- |
+| Web            | Next.js 16 (App Router, Server Components, `proxy.ts`), React 19, TypeScript estricto                    |
+| UI             | Tailwind CSS 4 (layout y utilidades) y MUI 9 (componentes complejos), Atomic Design, modo claro y oscuro |
+| i18n           | next-intl 4 (español e inglés)                                                                           |
+| Datos          | PostgreSQL 18 y Prisma 7 (driver adapter `pg`)                                                           |
+| Colas          | Redis 8 y BullMQ 6, con el worker en un proceso propio                                                   |
+| Archivos       | Almacenamiento S3 compatible (SeaweedFS)                                                                 |
+| Documentos     | Gotenberg 8 (conversión a PDF) y poppler (miniaturas)                                                    |
+| Observabilidad | pino (logs JSON con redacción), MCLog opcional y endpoints de salud                                      |
+| Calidad        | Vitest 5, ESLint 9 con límites de capas, Prettier                                                        |
+| Despliegue     | Docker Compose en VM y Caddy con TLS automático                                                          |
+
+## Requisitos
+
+- Node.js 24 o superior
+- pnpm 11 o superior
+- Docker Desktop o Docker Engine con Compose v2
+
+## Instalación rápida (desarrollo)
+
+```bash
+pnpm install
+pnpm setup        # crea .env con secretos aleatorios, levanta la infraestructura, migra y carga datos
+pnpm dev          # app en http://localhost:3020
+pnpm dev:worker   # worker en otra terminal, salud en http://localhost:9464/health
+```
+
+`pnpm setup` es idempotente: se puede repetir sin perder datos ni regenerar secretos.
+
+### Servicios de desarrollo
+
+| Servicio                    | URL o puerto (solo 127.0.0.1)                                              |
+| --------------------------- | -------------------------------------------------------------------------- |
+| App                         | http://localhost:3020                                                      |
+| Estado de dependencias      | http://localhost:3020/api/health/ready                                     |
+| Worker                      | http://localhost:9464/health                                               |
+| Mailpit (correos de prueba) | http://localhost:8025 (SMTP en 1025)                                       |
+| PostgreSQL                  | 5452 (tests: 5453 con `docker compose --profile test up -d postgres-test`) |
+| Redis                       | 6390                                                                       |
+| S3 (SeaweedFS)              | http://localhost:8333                                                      |
+| Gotenberg                   | http://localhost:3100                                                      |
+
+### Stack completo en Docker
+
+```bash
+docker compose up --build          # desarrollo: app, worker e infraestructura
+docker compose -f compose.yaml -f compose.prod.yaml up -d --build   # producción con Caddy y TLS
+```
+
+En redes con inspección TLS, como la red corporativa de Multicómputos, coloca la CA raíz en `docker/certs/`. Las instrucciones están en [docker/certs/README.md](docker/certs/README.md).
+
+## Scripts
+
+| Script                                                    | Uso                                                   |
+| --------------------------------------------------------- | ----------------------------------------------------- |
+| `pnpm setup`                                              | Puesta en marcha completa del entorno de desarrollo   |
+| `pnpm dev` / `pnpm dev:worker`                            | App y worker en modo desarrollo                       |
+| `pnpm build`                                              | Cliente Prisma, build de Next.js y bundle del worker  |
+| `pnpm start` / `pnpm start:worker`                        | Ejecutar el build de producción                       |
+| `pnpm db:migrate` / `db:deploy` / `db:seed` / `db:studio` | Base de datos                                         |
+| `pnpm typecheck` / `pnpm lint` / `pnpm format`            | Calidad de código                                     |
+| `pnpm test` / `test:int` / `test:coverage`                | Tests unitarios, de integración y cobertura           |
+| `pnpm audit`                                              | Auditoría de dependencias (falla con High o Critical) |
+
+## Estructura
+
+```
+src/
+├─ core/            dominio: entidades, casos de uso y puertos (sin frameworks)
+├─ infrastructure/  adaptadores: Prisma, Redis/BullMQ, observabilidad, proveedores
+├─ worker/          proceso de colas (BullMQ) y servidor de salud
+├─ app/             rutas de Next.js (presentación) y endpoints de API
+├─ components/      UI con Atomic Design (atoms, molecules, organisms)
+└─ common/          configuración, tema, i18n y utilidades transversales
+```
+
+## Documentación
+
+- [Arquitectura](docs/ARCHITECTURE.md): capas, flujos y diagramas.
+- [Documento técnico](docs/TECHNICAL.md): decisiones, variables de entorno, datos, seguridad y escalabilidad.
+- [Manual de usuario](docs/USER_MANUAL.md): guía de uso y resolución de problemas.
+- [Decisiones de arquitectura (ADR)](docs/adr/).
+
+## Roadmap
+
+| Fase | Alcance                                                                                           | Estado     |
+| ---- | ------------------------------------------------------------------------------------------------- | ---------- |
+| 0    | Andamiaje, Docker, Prisma, observabilidad, tema de marca, i18n, worker                            | Completada |
+| 1    | Núcleo multi-tenant, autenticación (Entra ID y credenciales), RBAC, contactos, listas y segmentos | Pendiente  |
+| 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Pendiente  |
+| 3    | Campañas, envío multi-proveedor (SMTP, Graph, Resend, SES), tracking y bajas                      | Pendiente  |
+| 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Pendiente  |
+| 5    | PWA, revisión i18n, hardening y documentación final                                               | Pendiente  |
+
+---
+
+Desarrollado por **Ing. Heri Espinosa** para Multicómputos.

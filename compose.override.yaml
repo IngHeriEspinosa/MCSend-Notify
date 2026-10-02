@@ -1,0 +1,68 @@
+# =============================================================================
+# Desarrollo (se aplica automáticamente con `docker compose up`).
+# Publica los puertos solo en 127.0.0.1 y añade Mailpit y la base de datos de tests.
+# =============================================================================
+services:
+  postgres:
+    ports:
+      - '127.0.0.1:5452:5432'
+
+  redis:
+    ports:
+      - '127.0.0.1:6390:6379'
+
+  storage:
+    ports:
+      - '127.0.0.1:8333:8333'
+
+  gotenberg:
+    ports:
+      - '127.0.0.1:3100:3000'
+
+  # Servidor SMTP de pruebas: captura todos los correos. UI en http://localhost:8025
+  mailpit:
+    image: axllent/mailpit:v1.27
+    restart: unless-stopped
+    ports:
+      - '127.0.0.1:1025:1025'
+      - '127.0.0.1:8025:8025'
+    environment:
+      MP_SMTP_AUTH_ACCEPT_ANY: '1'
+      MP_SMTP_AUTH_ALLOW_INSECURE: '1'
+    healthcheck:
+      test: ['CMD', '/mailpit', 'readyz']
+      interval: 10s
+      timeout: 5s
+      retries: 10
+
+  # Base de datos efímera (en memoria) para los tests de integración: `docker compose --profile test up -d postgres-test`
+  postgres-test:
+    image: postgres:18-alpine
+    profiles: ['test']
+    environment:
+      POSTGRES_USER: mcsn_test
+      POSTGRES_PASSWORD: mcsn_test
+      POSTGRES_DB: mc_send_notify_test
+    tmpfs:
+      - /var/lib/postgresql
+    ports:
+      - '127.0.0.1:5453:5432'
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U mcsn_test -d mc_send_notify_test']
+      interval: 3s
+      timeout: 3s
+      retries: 20
+
+  app:
+    ports:
+      - '127.0.0.1:3020:3000'
+    environment:
+      APP_ENV: development
+      SYSTEM_MAIL_SMTP_URL: smtp://mailpit:1025
+
+  worker:
+    ports:
+      - '127.0.0.1:9464:9464'
+    environment:
+      APP_ENV: development
+      SYSTEM_MAIL_SMTP_URL: smtp://mailpit:1025

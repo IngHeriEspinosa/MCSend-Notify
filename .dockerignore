@@ -1,0 +1,15 @@
+.git
+.next
+dist
+coverage
+node_modules
+desing
+docs
+tests/e2e
+playwright-report
+test-results
+.env
+.env.*
+!.env.example
+*.log
+src/infrastructure/persistence/prisma/generated

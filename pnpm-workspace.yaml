@@ -1,0 +1,20 @@
+# Configuración de pnpm 11 para un proyecto único (sin paquetes de workspace).
+# Supply chain: cada dependencia con scripts de instalación necesita una decisión explícita.
+# - true: el script es necesario (motores de Prisma para migrar, binario de esbuild).
+# - false: ya trae binarios precompilados o tiene alternativa en JavaScript.
+allowBuilds:
+  '@prisma/engines': true
+  prisma: true
+  esbuild: true
+  '@parcel/watcher': false
+  '@swc/core': false
+  msgpackr-extract: false
+  unrs-resolver: false
+
+# Remediación de vulnerabilidades transitivas del CLI de Prisma (pnpm audit sin High/Critical).
+# Revisar y retirar cuando Prisma publique versiones que ya las incluyan.
+# - mysql2: GHSA de credenciales en texto claro y descompresión sin límite (no se usa MySQL).
+# - deepmerge-ts: agotamiento de pila; @prisma/config solo usa `deepmerge`, API estable en v8.
+overrides:
+  mysql2: 3.24.5
+  deepmerge-ts: 8.0.2

@@ -1,0 +1,30 @@
+# Dependencias
+node_modules/
+
+# Builds
+.next/
+dist/
+out/
+*.tsbuildinfo
+next-env.d.ts
+
+# Cliente Prisma generado (se regenera en postinstall)
+src/infrastructure/persistence/prisma/generated/
+
+# Entorno: solo se versiona .env.example
+.env
+.env.*
+!.env.example
+
+# Tests
+coverage/
+playwright-report/
+test-results/
+
+# Sistema
+.DS_Store
+Thumbs.db
+*.log
+
+# Certificados de CA específicos del entorno (ver docker/certs/README.md)
+docker/certs/*.crt

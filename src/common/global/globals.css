@@ -1,0 +1,49 @@
+/*
+ * Estilos globales. Autor: Ing. Heri Espinosa.
+ * Orden de capas: Tailwind (theme, base), MUI (@layer mui, vía enableCssLayer) y utilidades.
+ * Así las utilidades de Tailwind pueden ajustar componentes MUI sin usar !important.
+ */
+@layer theme, base, mui, components, utilities;
+
+@import 'tailwindcss/theme.css' layer(theme);
+@import 'tailwindcss/preflight.css' layer(base);
+@import 'tailwindcss/utilities.css' layer(utilities);
+
+/* Modo oscuro por clase, igual que MUI (colorSchemeSelector: 'class'). */
+@custom-variant dark (&:where(.dark, .dark *));
+
+/* Tokens de Tailwind enlazados a las variables CSS que genera MUI: una sola fuente de verdad. */
+@theme inline {
+  --color-primary: var(--mc-palette-primary-main);
+  --color-primary-contrast: var(--mc-palette-primary-contrastText);
+  --color-secondary: var(--mc-palette-secondary-main);
+  --color-secondary-contrast: var(--mc-palette-secondary-contrastText);
+  --color-surface: var(--mc-palette-background-default);
+  --color-paper: var(--mc-palette-background-paper);
+  --color-ink: var(--mc-palette-text-primary);
+  --color-ink-muted: var(--mc-palette-text-secondary);
+  --color-line: var(--mc-palette-divider);
+  --font-sans: var(--font-brand-body), Calibri, Carlito, 'Segoe UI', Arial, sans-serif;
+  --font-heading: var(--font-brand-heading), Gotham, Montserrat, 'Segoe UI', sans-serif;
+}
+
+@layer base {
+  html {
+    color-scheme: light;
+  }
+
+  html.dark {
+    color-scheme: dark;
+  }
+
+  body {
+    background-color: var(--mc-palette-background-default);
+    color: var(--mc-palette-text-primary);
+    font-family: var(--font-brand-body), Calibri, Carlito, 'Segoe UI', Arial, sans-serif;
+  }
+
+  :focus-visible {
+    outline: 3px solid var(--mc-palette-secondary-main);
+    outline-offset: 2px;
+  }
+}

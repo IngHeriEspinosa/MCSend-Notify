@@ -1,0 +1,14 @@
+# Proxy inverso de producción con TLS automático. Autor: Ing. Heri Espinosa
+{$APP_DOMAIN} {
+	encode zstd gzip
+
+	# El progreso de campañas usa Server-Sent Events: sin buffering.
+	reverse_proxy app:3000 {
+		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}

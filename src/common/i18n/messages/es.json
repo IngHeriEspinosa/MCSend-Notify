@@ -1,0 +1,49 @@
+{
+  "Metadata": {
+    "title": "MC Send Notify",
+    "description": "Comunicaciones automatizadas por correo para los clientes de Multicómputos."
+  },
+  "Common": {
+    "skipToContent": "Saltar al contenido",
+    "toggleTheme": "Cambiar entre modo claro y oscuro",
+    "themeLight": "Modo claro",
+    "themeDark": "Modo oscuro",
+    "language": "Idioma",
+    "languages": {
+      "es": "Español",
+      "en": "English"
+    },
+    "brandAlt": "Multicómputos, optimizando el futuro juntos"
+  },
+  "Home": {
+    "eyebrow": "Plataforma de comunicaciones",
+    "title": "Envía actualizaciones y resúmenes a tus clientes, sin esfuerzo",
+    "subtitle": "Gestiona campañas por aplicación, redacta con IA, adjunta documentos con miniatura y automatiza los envíos recurrentes.",
+    "statusLink": "Ver estado de la plataforma",
+    "featuresTitle": "Lo que incluye",
+    "features": {
+      "tenants": {
+        "title": "Multi-aplicación",
+        "description": "Cada producto tiene sus contactos, plantillas, remitentes y marca, totalmente aislados."
+      },
+      "ai": {
+        "title": "Redacción con IA",
+        "description": "Genera borradores desde notas de versión, traduce y sugiere asuntos con aprobación humana."
+      },
+      "documents": {
+        "title": "Documentos con miniatura",
+        "description": "HTML, Markdown, PDF, Word y PowerPoint, con vista previa de la presentación en el correo."
+      },
+      "automation": {
+        "title": "Envíos automáticos",
+        "description": "Resúmenes semanales y campañas programadas con varios proveedores de correo."
+      }
+    },
+    "footer": "Desarrollado por Ing. Heri Espinosa para Multicómputos."
+  },
+  "NotFound": {
+    "title": "Página no encontrada",
+    "description": "La dirección que buscas no existe o cambió de lugar.",
+    "backHome": "Volver al inicio"
+  }
+}

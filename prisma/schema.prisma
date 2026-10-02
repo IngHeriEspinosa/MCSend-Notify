@@ -1,0 +1,143 @@
+// Esquema de datos de MC Send Notify — Ing. Heri Espinosa
+// Convenciones: ids UUIDv7, timestamps en todas las tablas, tenantId en toda tabla de negocio,
+// nombres de tabla y columna en snake_case mediante @@map/@map.
+
+generator client {
+  provider     = "prisma-client"
+  output       = "../src/infrastructure/persistence/prisma/generated"
+  moduleFormat = "esm"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+enum PlatformRole {
+  SUPER_ADMIN
+  USER
+}
+
+enum MembershipRole {
+  OWNER
+  ADMIN
+  EDITOR
+  VIEWER
+}
+
+enum TenantStatus {
+  ACTIVE
+  SUSPENDED
+}
+
+/// Cada aplicación o producto de Multicómputos (MCSupport, MCLog...) es un tenant aislado.
+model Tenant {
+  id                    String       @id @default(uuid(7)) @db.Uuid
+  slug                  String       @unique
+  name                  String
+  status                TenantStatus @default(ACTIVE)
+  defaultLocale         String       @default("es") @map("default_locale")
+  timezone              String       @default("America/Santo_Domingo")
+  /// { logoKey?, primary, accent, footerMd?, socialLinks? }
+  branding              Json         @default("{}")
+  /// Dirección postal obligatoria en el pie de los correos (CAN-SPAM).
+  postalAddress         String?      @map("postal_address")
+  /// { approvalThreshold?, attachmentMaxMb?, sendingWindow?, trackingDefaults? }
+  settings              Json         @default("{}")
+  onboardingStep        Int          @default(0) @map("onboarding_step")
+  onboardingCompletedAt DateTime?    @map("onboarding_completed_at")
+  createdAt             DateTime     @default(now()) @map("created_at")
+  updatedAt             DateTime     @updatedAt @map("updated_at")
+
+  memberships TenantMembership[]
+
+  @@map("tenants")
+}
+
+model User {
+  id               String       @id @default(uuid(7)) @db.Uuid
+  email            String       @unique
+  name             String?
+  image            String?
+  emailVerified    DateTime?    @map("email_verified")
+  passwordHash     String?      @map("password_hash")
+  platformRole     PlatformRole @default(USER) @map("platform_role")
+  locale           String       @default("es")
+  isActive         Boolean      @default(true) @map("is_active")
+  /// Se incrementa para revocar todas las sesiones JWT del usuario.
+  sessionVersion   Int          @default(0) @map("session_version")
+  failedLoginCount Int          @default(0) @map("failed_login_count")
+  lockedUntil      DateTime?    @map("locked_until")
+  lastLoginAt      DateTime?    @map("last_login_at")
+  createdAt        DateTime     @default(now()) @map("created_at")
+  updatedAt        DateTime     @updatedAt @map("updated_at")
+
+  accounts    Account[]
+  sessions    Session[]
+  memberships TenantMembership[]
+
+  @@map("users")
+}
+
+/// Modelo estándar de Auth.js (@auth/prisma-adapter).
+model Account {
+  id                String   @id @default(uuid(7)) @db.Uuid
+  userId            String   @map("user_id") @db.Uuid
+  type              String
+  provider          String
+  providerAccountId String   @map("provider_account_id")
+  refresh_token     String?
+  access_token      String?
+  expires_at        Int?
+  token_type        String?
+  scope             String?
+  id_token          String?
+  session_state     String?
+  createdAt         DateTime @default(now()) @map("created_at")
+  updatedAt         DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([provider, providerAccountId])
+  @@index([userId])
+  @@map("accounts")
+}
+
+/// Modelo estándar de Auth.js. Con estrategia JWT queda sin uso, pero el adapter lo requiere.
+model Session {
+  id           String   @id @default(uuid(7)) @db.Uuid
+  sessionToken String   @unique @map("session_token")
+  userId       String   @map("user_id") @db.Uuid
+  expires      DateTime
+  createdAt    DateTime @default(now()) @map("created_at")
+  updatedAt    DateTime @updatedAt @map("updated_at")
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@index([userId])
+  @@map("sessions")
+}
+
+model VerificationToken {
+  identifier String
+  token      String
+  expires    DateTime
+
+  @@id([identifier, token])
+  @@map("verification_tokens")
+}
+
+model TenantMembership {
+  id        String         @id @default(uuid(7)) @db.Uuid
+  tenantId  String         @map("tenant_id") @db.Uuid
+  userId    String         @map("user_id") @db.Uuid
+  role      MembershipRole
+  createdAt DateTime       @default(now()) @map("created_at")
+  updatedAt DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, userId])
+  @@index([userId])
+  @@map("tenant_memberships")
+}
