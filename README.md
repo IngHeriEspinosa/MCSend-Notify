@@ -101,6 +101,10 @@ src/
 | 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Pendiente  |
 | 5    | PWA, revisión i18n, hardening y documentación final                                               | Pendiente  |
 
+## Licencia
+
+Este proyecto es software libre distribuido bajo la [GNU General Public License v3.0](LICENSE) (`GPL-3.0-only`). Cualquier obra derivada que se distribuya debe publicarse bajo la misma licencia.
+
 ---
 
 Desarrollado por **Ing. Heri Espinosa** para Multicómputos.
