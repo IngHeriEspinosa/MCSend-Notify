@@ -5,6 +5,7 @@
 export const QUEUE_NAMES = {
   maintenance: 'maintenance',
   contactImport: 'contact-import',
+  documentProcess: 'document-process',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];

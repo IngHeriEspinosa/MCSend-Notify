@@ -5,12 +5,20 @@
  * - MCLog: tenant vacío para probar la configuración desde cero.
  * Autor: Ing. Heri Espinosa
  */
+import { createHash, randomUUID } from 'node:crypto';
+import { readFileSync } from 'node:fs';
 import { z } from 'zod';
+import { parseServerEnv, type ServerEnv } from '../src/common/config/env';
+import { systemContext } from '../src/core/shared/tenant-context';
+import { templateBodySchema } from '../src/core/templates/email-content';
 import { Argon2PasswordHasher } from '../src/infrastructure/crypto/crypto-services';
 import {
   createPrismaClient,
   type PrismaClient,
 } from '../src/infrastructure/persistence/prisma/client';
+import { createRedisConnection } from '../src/infrastructure/queue/connection';
+import { BullDocumentQueue } from '../src/infrastructure/queue/jobs';
+import { S3ObjectStorage } from '../src/infrastructure/storage/s3.object-storage';
 
 const seedEnv = z
   .object({
@@ -228,6 +236,163 @@ async function seedDemoAudience(prisma: PrismaClient, tenantId: string) {
   }
 }
 
+const SAMPLE_DECK_FILE = 'sample-deck.pptx';
+
+/**
+ * Presentación de ejemplo: se sube al almacenamiento y se encola para que el worker genere la
+ * miniatura. Si el almacenamiento o Redis no están configurados, se omite sin fallar.
+ */
+async function seedSampleDeck(
+  prisma: PrismaClient,
+  tenant: { id: string; slug: string },
+  adminId: string,
+): Promise<string | null> {
+  const existing = await prisma.document.findFirst({
+    where: { tenantId: tenant.id, fileName: SAMPLE_DECK_FILE },
+    select: { id: true },
+  });
+  if (existing) return existing.id;
+
+  let env: ServerEnv;
+  try {
+    env = parseServerEnv(process.env);
+  } catch {
+    console.warn(
+      'Seed: sin variables de almacenamiento/Redis; se omite la presentación de ejemplo.',
+    );
+    return null;
+  }
+  const bytes = new Uint8Array(
+    readFileSync(new URL(`./seed-assets/${SAMPLE_DECK_FILE}`, import.meta.url)),
+  );
+  const id = randomUUID();
+  const storageKey = `tenants/${tenant.id}/documents/${id}/original.pptx`;
+  const storage = new S3ObjectStorage({
+    endpoint: env.S3_ENDPOINT,
+    region: env.S3_REGION,
+    bucket: env.S3_BUCKET,
+    accessKeyId: env.S3_ACCESS_KEY_ID,
+    secretAccessKey: env.S3_SECRET_ACCESS_KEY,
+    forcePathStyle: env.S3_FORCE_PATH_STYLE,
+  });
+  await storage.ensureBucket();
+  await storage.put(
+    storageKey,
+    bytes,
+    'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+  );
+  await prisma.document.create({
+    data: {
+      id,
+      tenantId: tenant.id,
+      title: 'MCSupport 3.2 · Novedades',
+      fileName: SAMPLE_DECK_FILE,
+      extension: 'pptx',
+      kind: 'PRESENTATION',
+      mimeType: 'application/vnd.openxmlformats-officedocument.presentationml.presentation',
+      sizeBytes: bytes.byteLength,
+      sha256: createHash('sha256').update(bytes).digest('hex'),
+      storageKey,
+      createdById: adminId,
+    },
+  });
+  const redis = createRedisConnection(env.REDIS_URL, 'client');
+  const queue = new BullDocumentQueue(redis);
+  try {
+    await queue.enqueue(systemContext(tenant.id, tenant.slug, 'seed'), id);
+  } finally {
+    await queue.close();
+    await redis.quit();
+  }
+  return id;
+}
+
+/** Plantillas de ejemplo: actualización de producto (bloques) y resumen semanal (Markdown). */
+async function seedDemoTemplates(
+  prisma: PrismaClient,
+  tenantId: string,
+  adminId: string,
+  deckId: string | null,
+) {
+  const productUpdate = templateBodySchema.parse({
+    format: 'BLOCKS',
+    subject: '{{ contact.first_name }}, ya está aquí MCSupport 3.2',
+    preheader: 'Panel de SLA en tiempo real, asignación automática y más.',
+    locale: 'es',
+    content: {
+      blocks: [
+        { id: 'title', type: 'heading', text: 'Novedades de MCSupport 3.2', level: 1 },
+        {
+          id: 'intro',
+          type: 'text',
+          markdown:
+            'Hola {{ contact.first_name }},\n\nEste mes llega **MCSupport 3.2** con mejoras pensadas para {{ contact.company | default: \"tu equipo\" }}:\n\n- Panel de SLA en tiempo real\n- Asignación automática de tickets por habilidades\n- Notificaciones en Microsoft Teams',
+        },
+        ...(deckId
+          ? [
+              {
+                id: 'deck',
+                type: 'document',
+                documentId: deckId,
+                description: 'Repasa todas las novedades en la presentación de la versión.',
+              },
+            ]
+          : []),
+        {
+          id: 'cta',
+          type: 'button',
+          label: 'Conoce más',
+          url: 'https://www.multicomputos.com',
+        },
+        { id: 'sep', type: 'divider' },
+        {
+          id: 'closing',
+          type: 'text',
+          markdown: 'Si tienes dudas, responde a este correo y nuestro equipo te ayudará.',
+        },
+      ],
+    },
+  });
+  const weeklySummary = templateBodySchema.parse({
+    format: 'MARKDOWN',
+    subject: 'Resumen semanal de {{ tenant.name }}',
+    preheader: 'Lo más importante de la semana en un minuto.',
+    locale: 'es',
+    content: {
+      markdown:
+        '# Resumen semanal\n\nHola {{ contact.first_name }}, esto es lo más destacado de la semana:\n\n## Novedades\n\n- Mejoras de rendimiento en la consola\n- Nuevos informes de satisfacción\n\n## Próximos pasos\n\nPlan contratado: **{{ fields.plan | default: "sin plan" }}**.\n\n[Gestiona tus preferencias]({{ preferences_url }})',
+    },
+  });
+
+  for (const [name, description, body] of [
+    [
+      'Actualización de producto',
+      'Anuncio de una versión nueva con su presentación.',
+      productUpdate,
+    ],
+    ['Resumen semanal', 'Resumen de la semana en Markdown.', weeklySummary],
+  ] as const) {
+    const exists = await prisma.template.findUnique({
+      where: { tenantId_name: { tenantId, name } },
+      select: { id: true },
+    });
+    if (exists) continue;
+    const columns = {
+      format: body.format,
+      subject: body.subject,
+      preheader: body.preheader,
+      locale: body.locale,
+      content: body.content,
+    };
+    const template = await prisma.template.create({
+      data: { tenantId, name, description, ...columns, createdById: adminId, updatedById: adminId },
+    });
+    await prisma.templateVersion.create({
+      data: { tenantId, templateId: template.id, version: 1, ...columns, createdById: adminId },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const prisma = createPrismaClient(seedEnv.DATABASE_URL);
   try {
@@ -257,9 +422,11 @@ async function main(): Promise<void> {
       });
     }
     await seedDemoAudience(prisma, mcsupport.id);
+    const deckId = await seedSampleDeck(prisma, mcsupport, admin.id);
+    await seedDemoTemplates(prisma, mcsupport.id, admin.id, deckId);
 
     console.log(
-      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos de demostración y MCLog vacío.`,
+      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos, plantillas y presentación de demostración, y MCLog vacío.`,
     );
   } finally {
     await prisma.$disconnect();

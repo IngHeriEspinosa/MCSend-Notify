@@ -46,6 +46,8 @@ Los límites se **hacen cumplir con ESLint** (`no-restricted-imports` en [eslint
 
 [src/infrastructure/container.ts](../src/infrastructure/container.ts) crea las dependencias compartidas: logger, Prisma, Redis y comprobaciones de salud. Usa fábricas con singleton perezoso guardado en `globalThis`, para que el HMR de desarrollo no abra conexiones duplicadas. No se usa ninguna librería de inyección de dependencias: los casos de uso reciben sus puertos desde aquí.
 
+Como los casos de uso memoizados se comparten entre las capas de Next.js (páginas y route handlers cargan copias distintas de un mismo módulo), los errores de dominio se reconocen por una marca global (`Symbol.for`) y no solo con `instanceof`.
+
 ## 3. Flujo de una petición web
 
 ```mermaid
@@ -156,12 +158,65 @@ sequenceDiagram
 
 El rendimiento medido es de unos 9 s para 10.000 filas, frente al objetivo de 60 s.
 
-## 8. Diseño de la UI
+## 8. Plantillas y compilación de correos
+
+Las plantillas guardan un cuerpo validado con Zod en uno de tres formatos: bloques, Markdown o HTML. Cada guardado crea una `TemplateVersion` inmutable, protegida por un trigger. El guardado usa concurrencia optimista: si otra persona guardó antes, se devuelve `CONFLICT` sin pisar su trabajo. Restaurar crea una versión nueva con el contenido antiguo.
+
+```mermaid
+flowchart LR
+  body[Cuerpo de la plantilla<br/>bloques · Markdown · HTML] --> protect[Proteger etiquetas Liquid]
+  protect --> render{Formato}
+  render -->|bloques| blocks[Renderizador de bloques<br/>tablas + escape]
+  render -->|Markdown| md[markdown-it<br/>sin HTML]
+  render -->|HTML| san[juice + sanitize-html<br/>lista blanca]
+  blocks --> layout[Layout de marca<br/>cabecera · pie obligatorio]
+  md --> layout
+  san --> layout
+  layout --> juice[juice: CSS en línea<br/>conserva media queries]
+  juice --> restore[Restaurar Liquid]
+  restore --> checks[Comprobaciones previas]
+  restore --> prepared[(Correo preparado)]
+  prepared --> personalize[LiquidJS por destinatario<br/>escape HTML]
+  personalize --> email[Asunto + HTML + texto]
+```
+
+- `prepare` se ejecuta una vez; `personalize` sustituye las variables de cada destinatario. La Fase 3 reutiliza ambos para los envíos.
+- La **vista previa** usa el mismo compilador con un contacto real o de ejemplo. Se muestra en un `<iframe sandbox="" srcdoc>`, sin scripts ni acceso a la sesión.
+- Los **enlaces de baja y preferencias** son variables de sistema. En la vista previa apuntan a anclas inocuas; en la Fase 3 serán URL firmadas.
+- Las decisiones están en el [ADR 0006](adr/0006-email-rendering.md).
+
+## 9. Documentos y miniaturas
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario
+  participant R as Route handler /api/t/{slug}/documents
+  participant S as S3 (SeaweedFS)
+  participant Q as Cola document-process
+  participant W as Worker
+  participant G as Gotenberg
+  participant P as poppler + sharp
+  U->>R: POST multipart (mismo origen, 60 subidas/hora)
+  R->>R: tipo real por bytes mágicos (lista blanca)
+  R->>S: original.{ext}
+  R->>Q: job document-{id}
+  Q->>W: ProcessDocument (3 intentos)
+  W->>G: PPTX/DOCX/XLSX → LibreOffice · HTML/MD/TXT → Chromium
+  G-->>W: PDF
+  W->>P: páginas, primera página a 1200 px, texto (20 páginas)
+  W->>S: document.pdf + thumbnail.jpg
+  W->>W: estado READY (o FAILED con código)
+  U->>U: la biblioteca consulta el estado cada 3 s
+```
+
+En los correos, la tarjeta del documento muestra la miniatura desde `/trk/i/{token}` y enlaza la descarga en `/trk/d/{token}`. Ambas son URL firmadas con HMAC, públicas y sin caducidad. En la interfaz los archivos se sirven con sesión desde `/api/t/{slug}/documents/{id}/file`. El detalle está en el [ADR 0007](adr/0007-document-processing.md).
+
+## 10. Diseño de la UI
 
 - **Atomic Design:**
-  - `atoms`: `BrandLogo`, `StatusChip`.
-  - `molecules`: `PageHeader`, `StatCard`, `ConfirmDialog`, `CopyField`, `LinkButton`, `EmptyState`, `ThemeToggle`, `LocaleSwitcher`.
-  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, etc.
+  - `atoms`: `BrandLogo`, `StatusChip`, `ColorSwatch` (SVG, sin estilos en línea).
+  - `molecules`: `PageHeader`, `StatCard`, `ConfirmDialog`, `CopyField`, `LinkButton`, `EmptyState`, `ThemeToggle`, `LocaleSwitcher`, `FileDropzone`, `EmailPreviewFrame`.
+  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, etc.
 - **Server Components** cargan los datos; los componentes cliente solo reciben datos serializables y llaman a Server Actions.
 - **Tailwind y MUI conviven** mediante capas CSS (`@layer theme, base, mui, components, utilities`). Las variables CSS que genera MUI (prefijo `--mc-`) se exponen como colores de Tailwind (`bg-primary`, `text-ink-muted`...), con una sola fuente de verdad en [src/common/theme/tokens.ts](../src/common/theme/tokens.ts).
 - **Modo oscuro** por clase en `<html>`, compartido por MUI y Tailwind, sin parpadeo inicial.

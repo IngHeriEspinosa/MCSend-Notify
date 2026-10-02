@@ -7,7 +7,11 @@
  */
 import { createMCLogClient } from '@multicomputos-srl/mclog';
 import type { Redis } from 'ioredis';
-import { getServerEnv } from '@/common/config/env';
+import { getServerEnv, getSigningEnv } from '@/common/config/env';
+import { MagicBytesFileInspector } from './documents/file-inspector';
+import { GotenbergDocumentConverter } from './documents/gotenberg-converter';
+import { PopplerPdfToolkit } from './documents/poppler-pdf-toolkit';
+import { SharpImageProcessor } from './documents/sharp-image-processor';
 import { PapaXlsxSpreadsheetReader } from './import/spreadsheet-reader';
 import { createLogger, type Logger } from './observability/logger';
 import { MCLogBatchStream } from './observability/mclog.transport';
@@ -16,8 +20,10 @@ import { WorkerHeartbeat, workerHeartbeatHealthCheck } from './observability/wor
 import { createPrismaClient, type PrismaClient } from './persistence/prisma/client';
 import { TenantClientCache } from './persistence/prisma/tenant-scope.extension';
 import { createRedisConnection } from './queue/connection';
-import { BullContactImportQueue } from './queue/jobs';
+import { BullContactImportQueue, BullDocumentQueue } from './queue/jobs';
+import { HtmlEmailCompiler } from './rendering/email-compiler';
 import { RateLimiter, RATE_LIMITS } from './security/rate-limiter';
+import { HmacPublicAssetLinks } from './security/signed-asset-links';
 import { S3ObjectStorage } from './storage/s3.object-storage';
 
 export type ServiceName = 'web' | 'worker';
@@ -31,6 +37,7 @@ interface ContainerState {
   mclogStream?: MCLogBatchStream;
   storage?: S3ObjectStorage;
   contactImportQueue?: BullContactImportQueue;
+  documentQueue?: BullDocumentQueue;
   rateLimiters?: Map<keyof typeof RATE_LIMITS, RateLimiter>;
   memo?: Map<string, unknown>;
 }
@@ -118,6 +125,42 @@ export function getSpreadsheetReader(): PapaXlsxSpreadsheetReader {
 export function getContactImportQueue(): BullContactImportQueue {
   state.contactImportQueue ??= new BullContactImportQueue(getRedis());
   return state.contactImportQueue;
+}
+
+export function getDocumentQueue(): BullDocumentQueue {
+  state.documentQueue ??= new BullDocumentQueue(getRedis());
+  return state.documentQueue;
+}
+
+export function getFileInspector(): MagicBytesFileInspector {
+  return memoize('fileInspector', () => new MagicBytesFileInspector());
+}
+
+export function getDocumentConverter(): GotenbergDocumentConverter {
+  return memoize(
+    'documentConverter',
+    () => new GotenbergDocumentConverter(getServerEnv().GOTENBERG_URL),
+  );
+}
+
+export function getPdfToolkit(): PopplerPdfToolkit {
+  return memoize('pdfToolkit', () => new PopplerPdfToolkit(getServerEnv().POPPLER_BIN_DIR));
+}
+
+export function getImageProcessor(): SharpImageProcessor {
+  return memoize('imageProcessor', () => new SharpImageProcessor());
+}
+
+export function getEmailCompiler(): HtmlEmailCompiler {
+  return memoize('emailCompiler', () => new HtmlEmailCompiler());
+}
+
+/** URL públicas firmadas de miniaturas, descargas y logotipos (rutas /trk/*). */
+export function getPublicAssetLinks(): HmacPublicAssetLinks {
+  return memoize(
+    'publicAssetLinks',
+    () => new HmacPublicAssetLinks(getSigningEnv().TRACKING_SIGNING_SECRET, getServerEnv().APP_URL),
+  );
 }
 
 export function getRateLimiter(name: keyof typeof RATE_LIMITS): RateLimiter {

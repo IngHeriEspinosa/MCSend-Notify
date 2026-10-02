@@ -28,3 +28,8 @@ export interface SecretTokenService {
   generate(): { token: string; hash: string };
   hash(token: string): string;
 }
+
+/** Huella SHA-256 (hex) de un contenido: deduplicación e integridad de archivos. */
+export interface ContentHasher {
+  sha256(bytes: Uint8Array): string;
+}

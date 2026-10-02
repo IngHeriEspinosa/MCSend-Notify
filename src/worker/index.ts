@@ -20,6 +20,7 @@ import { QUEUE_NAMES, type QueueName } from '@/infrastructure/queue/queue-names'
 import { useCases } from '@/infrastructure/use-case-factory';
 import { startHealthServer } from './health-server';
 import { createContactImportProcessor } from './processors/contact-import.processor';
+import { createDocumentProcessor } from './processors/document-process.processor';
 import { createMaintenanceProcessor } from './processors/maintenance.processor';
 import { registerMaintenanceSchedulers } from './schedulers';
 
@@ -62,6 +63,11 @@ async function main(): Promise<void> {
     startWorker(
       QUEUE_NAMES.contactImport,
       createContactImportProcessor({ processImport: useCases.processImport() }),
+      { connection, concurrency: 2, logger },
+    ),
+    startWorker(
+      QUEUE_NAMES.documentProcess,
+      createDocumentProcessor({ processDocument: useCases.processDocument() }),
       { connection, concurrency: 2, logger },
     ),
   ];

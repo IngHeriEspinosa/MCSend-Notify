@@ -6,6 +6,8 @@
  * La navegación llega ya filtrada por permisos desde el servidor.
  */
 import AppsOutlined from '@mui/icons-material/AppsOutlined';
+import ArticleOutlined from '@mui/icons-material/ArticleOutlined';
+import BrushOutlined from '@mui/icons-material/BrushOutlined';
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined';
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined';
 import FilterAltOutlined from '@mui/icons-material/FilterAltOutlined';
@@ -14,6 +16,7 @@ import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
 import KeyOutlined from '@mui/icons-material/KeyOutlined';
 import LabelOutlined from '@mui/icons-material/LabelOutlined';
 import ListAltOutlined from '@mui/icons-material/ListAltOutlined';
+import MailOutlined from '@mui/icons-material/MailOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined';
@@ -49,7 +52,10 @@ export type NavIcon =
   | 'lists'
   | 'segments'
   | 'import'
+  | 'templates'
+  | 'documents'
   | 'general'
+  | 'branding'
   | 'members'
   | 'fields'
   | 'tags'
@@ -63,7 +69,10 @@ const ICONS: Record<NavIcon, ReactElement> = {
   lists: <ListAltOutlined />,
   segments: <FilterAltOutlined />,
   import: <UploadFileOutlined />,
+  templates: <MailOutlined />,
+  documents: <ArticleOutlined />,
   general: <SettingsOutlined />,
+  branding: <BrushOutlined />,
   members: <GroupOutlined />,
   fields: <TuneOutlined />,
   tags: <LabelOutlined />,
@@ -78,7 +87,7 @@ export interface NavItem {
 }
 
 export interface NavGroup {
-  key: 'main' | 'audience' | 'settings';
+  key: 'main' | 'audience' | 'content' | 'settings';
   items: NavItem[];
 }
 

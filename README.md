@@ -2,7 +2,7 @@
 
 Gestor multi-tenant de envío automático de correos para **Multicómputos**. Cada aplicación o producto (MCSupport, MCLog, etc.) es un _tenant_ aislado con sus propios contactos, plantillas, remitentes, marca y proveedores. La plataforma permite enviar actualizaciones y resúmenes semanales a los clientes, redactarlos con IA, adjuntar documentos con miniatura y automatizar los envíos recurrentes.
 
-> **Estado:** Fases 0 y 1 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos dinámicos, importaciones CSV/XLSX y claves de API. Las siguientes fases están en el [roadmap](#roadmap).
+> **Estado:** Fases 0, 1 y 2 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos, importaciones, claves de API, plantillas de correo con versiones, documentos con miniatura y la marca de los correos. Las siguientes fases están en el [roadmap](#roadmap).
 
 ## Funcionalidades disponibles
 
@@ -13,6 +13,9 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 - **Importación:** archivos CSV o Excel de hasta 100.000 filas, con mapeo de columnas sugerido, deduplicación e informe de errores.
 - **Listas y segmentos:** listas estáticas y segmentos dinámicos con reglas anidadas y recuento en vivo.
 - **API pública:** `/api/v1/contacts` con claves de API por tenant para sincronizar contactos desde otras aplicaciones.
+- **Plantillas de correo:** editor por bloques (titulares, texto, botones, imágenes, dos columnas y documentos), Markdown o HTML propio. Incluye variables `{{ contact.first_name }}`, vista previa en escritorio y móvil, modo claro y oscuro, comprobaciones previas al envío e historial de versiones con restauración.
+- **Documentos:** PDF, PowerPoint, Word, Excel, OpenDocument, imágenes, HTML, Markdown y texto. Se convierten a PDF y se genera la miniatura de la primera página para mostrarla en el correo con un enlace de descarga.
+- **Marca de los correos:** logotipo, colores con validación de contraste WCAG AA y pie propio por aplicación.
 - **Auditoría:** registro inmutable de las acciones de cada tenant.
 
 ## Stack
@@ -25,7 +28,8 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 | Datos          | PostgreSQL 18 y Prisma 7 (driver adapter `pg`)                                                           |
 | Colas          | Redis 8 y BullMQ 6, con el worker en un proceso propio                                                   |
 | Archivos       | Almacenamiento S3 compatible (SeaweedFS)                                                                 |
-| Documentos     | Gotenberg 8 (conversión a PDF) y poppler (miniaturas)                                                    |
+| Documentos     | Gotenberg 8 (conversión a PDF), poppler (páginas, miniatura y texto) y sharp (imágenes)                  |
+| Correos        | LiquidJS (variables), markdown-it, sanitize-html y juice (CSS en línea)                                  |
 | Observabilidad | pino (logs JSON con redacción), MCLog opcional y endpoints de salud                                      |
 | Calidad        | Vitest 5, ESLint 9 con límites de capas, Prettier                                                        |
 | Despliegue     | Docker Compose en VM y Caddy con TLS automático                                                          |
@@ -46,6 +50,8 @@ pnpm dev:worker   # worker en otra terminal, salud en http://localhost:9464/heal
 ```
 
 `pnpm setup` es idempotente: se puede repetir sin perder datos ni regenerar secretos.
+
+El procesamiento de documentos necesita poppler. En Windows, ejecuta el worker en Docker con `docker compose up -d --build worker` en lugar de `pnpm dev:worker`, o instala poppler e indica su carpeta en `POPPLER_BIN_DIR`.
 
 El acceso inicial es la cuenta `SEED_ADMIN_EMAIL` con la contraseña `SEED_ADMIN_PASSWORD` de tu archivo `.env` (generada por `pnpm setup`). Los datos de ejemplo están en la aplicación **MCSupport**.
 
@@ -117,7 +123,7 @@ src/
 | ---- | ------------------------------------------------------------------------------------------------- | ---------- |
 | 0    | Andamiaje, Docker, Prisma, observabilidad, tema de marca, i18n, worker                            | Completada |
 | 1    | Núcleo multi-tenant, autenticación (Entra ID y credenciales), RBAC, contactos, listas y segmentos | Completada |
-| 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Pendiente  |
+| 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Completada |
 | 3    | Campañas, envío multi-proveedor (SMTP, Graph, Resend, SES), tracking y bajas                      | Pendiente  |
 | 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Pendiente  |
 | 5    | PWA, revisión i18n, hardening y documentación final                                               | Pendiente  |

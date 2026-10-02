@@ -41,7 +41,20 @@ import {
   RemoveMemberUseCase,
   RevokeInvitationUseCase,
 } from '@/core/identity/use-cases/manage-members.use-case';
+import {
+  ManageDocumentsUseCase,
+  ProcessDocumentUseCase,
+  UploadDocumentUseCase,
+  type DocumentUseCaseDeps,
+} from '@/core/documents/use-cases/documents.use-cases';
+import { ResolvePublicAssetUseCase } from '@/core/documents/use-cases/public-assets.use-case';
 import { systemClock } from '@/core/shared/ports';
+import {
+  ManageTemplatesUseCase,
+  PreviewTemplateUseCase,
+  type TemplateUseCaseDeps,
+} from '@/core/templates/use-cases/templates.use-cases';
+import { ManageBrandingUseCase } from '@/core/tenants/branding.use-cases';
 import {
   CreateTenantUseCase,
   GetTenantStatsUseCase,
@@ -51,8 +64,15 @@ import {
 } from '@/core/tenants/use-cases';
 import {
   getContactImportQueue,
+  getDocumentConverter,
+  getDocumentQueue,
+  getEmailCompiler,
+  getFileInspector,
+  getImageProcessor,
   getObjectStorage,
+  getPdfToolkit,
   getPrisma,
+  getPublicAssetLinks,
   getSpreadsheetReader,
   getTenantClients,
   memoize,
@@ -62,6 +82,7 @@ import {
   cryptoIdGenerator,
   RandomSecretTokenService,
   Sha256ApiKeyCodec,
+  sha256ContentHasher,
 } from './crypto/crypto-services';
 import {
   PrismaApiKeyRepository,
@@ -76,11 +97,13 @@ import {
   PrismaTopicRepository,
 } from './persistence/prisma/repositories/audience.prisma-repositories';
 import { PrismaContactRepository } from './persistence/prisma/repositories/contact.prisma-repository';
+import { PrismaDocumentRepository } from './persistence/prisma/repositories/document.prisma-repository';
 import {
   PrismaInvitationRepository,
   PrismaMembershipRepository,
   PrismaUserRepository,
 } from './persistence/prisma/repositories/identity.prisma-repositories';
+import { PrismaTemplateRepository } from './persistence/prisma/repositories/template.prisma-repository';
 import { PrismaTenantRepository } from './persistence/prisma/repositories/tenant.prisma-repository';
 
 const repositories = {
@@ -106,6 +129,10 @@ const repositories = {
   topics: () => memoize('repo.topics', () => new PrismaTopicRepository(getTenantClients())),
   imports: () =>
     memoize('repo.imports', () => new PrismaContactImportRepository(getTenantClients())),
+  templates: () =>
+    memoize('repo.templates', () => new PrismaTemplateRepository(getPrisma(), getTenantClients())),
+  documents: () =>
+    memoize('repo.documents', () => new PrismaDocumentRepository(getTenantClients())),
 };
 
 const services = {
@@ -139,6 +166,36 @@ function importDeps(): ImportUseCaseDeps {
     audit: repositories.audit(),
     clock: systemClock,
     ids: cryptoIdGenerator,
+  };
+}
+
+function documentDeps(): DocumentUseCaseDeps {
+  return {
+    documents: repositories.documents(),
+    storage: getObjectStorage(),
+    inspector: getFileInspector(),
+    converter: getDocumentConverter(),
+    pdf: getPdfToolkit(),
+    images: getImageProcessor(),
+    queue: getDocumentQueue(),
+    hasher: sha256ContentHasher,
+    audit: repositories.audit(),
+    clock: systemClock,
+    ids: cryptoIdGenerator,
+  };
+}
+
+function templateDeps(): TemplateUseCaseDeps {
+  return {
+    templates: repositories.templates(),
+    documents: repositories.documents(),
+    contacts: repositories.contacts(),
+    fields: repositories.fields(),
+    branding: repositories.tenants(),
+    assets: getPublicAssetLinks(),
+    compiler: getEmailCompiler(),
+    audit: repositories.audit(),
+    clock: systemClock,
   };
 }
 
@@ -296,6 +353,35 @@ export const useCases = {
   getImport: () => memoize('uc.getImport', () => new GetContactImportUseCase(importDeps())),
   processImport: () =>
     memoize('uc.processImport', () => new ProcessContactImportUseCase(importDeps())),
+
+  // Plantillas, documentos y branding
+  templates: () => memoize('uc.templates', () => new ManageTemplatesUseCase(templateDeps())),
+  previewTemplate: () =>
+    memoize('uc.previewTemplate', () => new PreviewTemplateUseCase(templateDeps())),
+  uploadDocument: () =>
+    memoize('uc.uploadDocument', () => new UploadDocumentUseCase(documentDeps())),
+  processDocument: () =>
+    memoize('uc.processDocument', () => new ProcessDocumentUseCase(documentDeps())),
+  documents: () => memoize('uc.documents', () => new ManageDocumentsUseCase(documentDeps())),
+  publicAssets: () =>
+    memoize(
+      'uc.publicAssets',
+      () => new ResolvePublicAssetUseCase(repositories.documents(), getObjectStorage()),
+    ),
+  branding: () =>
+    memoize(
+      'uc.branding',
+      () =>
+        new ManageBrandingUseCase({
+          branding: repositories.tenants(),
+          storage: getObjectStorage(),
+          inspector: getFileInspector(),
+          images: getImageProcessor(),
+          assets: getPublicAssetLinks(),
+          audit: repositories.audit(),
+          ids: cryptoIdGenerator,
+        }),
+    ),
 
   // Claves de API
   apiKeys: () =>

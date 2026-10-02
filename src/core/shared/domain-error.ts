@@ -17,7 +17,16 @@ export const DOMAIN_ERROR_CODES = [
 
 export type DomainErrorCode = (typeof DOMAIN_ERROR_CODES)[number];
 
+/**
+ * Marca global (registro de `Symbol.for`): Next.js puede cargar este módulo en varias capas
+ * (páginas, route handlers) y los casos de uso memoizados en `globalThis` lanzan la clase de otra
+ * copia. `instanceof` fallaría entre copias; la marca no.
+ */
+const DOMAIN_ERROR_BRAND = Symbol.for('mc-send-notify.DomainError');
+
 export class DomainError extends Error {
+  readonly [DOMAIN_ERROR_BRAND] = true;
+
   constructor(
     readonly code: DomainErrorCode,
     message: string,
@@ -30,5 +39,11 @@ export class DomainError extends Error {
 }
 
 export function isDomainError(error: unknown): error is DomainError {
-  return error instanceof DomainError;
+  if (error instanceof DomainError) return true;
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    DOMAIN_ERROR_BRAND in error &&
+    error[DOMAIN_ERROR_BRAND] === true
+  );
 }

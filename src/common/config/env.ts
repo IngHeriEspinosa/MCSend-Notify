@@ -7,6 +7,7 @@
  *
  * - `getServerEnv()`: variables comunes a la app y al worker.
  * - `getAuthEnv()`: variables de autenticación, solo para la app web.
+ * - `getSigningEnv()`: secreto de las URL públicas firmadas (miniaturas, descargas, tracking).
  */
 import { z } from 'zod';
 
@@ -33,6 +34,8 @@ export const serverEnvSchema = z
     S3_SECRET_ACCESS_KEY: z.string().min(8),
     S3_FORCE_PATH_STYLE: z.stringbool().default(true),
     WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9464),
+    /** Carpeta de los binarios de poppler (pdfinfo, pdftoppm, pdftotext); vacío = PATH. */
+    POPPLER_BIN_DIR: optionalString,
     MCLOG_URL: z.preprocess(emptyToUndefined, z.url().optional()),
     MCLOG_API_KEY: optionalString,
     MCLOG_APPLICATION: z.string().min(1).default('mc-send-notify'),
@@ -85,6 +88,14 @@ export const authEnvSchema = z
 
 export type AuthEnv = z.infer<typeof authEnvSchema>;
 
+export const signingEnvSchema = z.object({
+  TRACKING_SIGNING_SECRET: z
+    .string()
+    .min(32, 'TRACKING_SIGNING_SECRET debe tener al menos 32 caracteres (ejecuta pnpm setup)'),
+});
+
+export type SigningEnv = z.infer<typeof signingEnvSchema>;
+
 export class InvalidEnvironmentError extends Error {
   constructor(details: string) {
     super(`Configuración de entorno inválida:\n${details}`);
@@ -112,8 +123,13 @@ export function parseAuthEnv(source: Record<string, string | undefined>): AuthEn
   return parseWith(authEnvSchema, source);
 }
 
+export function parseSigningEnv(source: Record<string, string | undefined>): SigningEnv {
+  return parseWith(signingEnvSchema, source);
+}
+
 let cachedEnv: ServerEnv | undefined;
 let cachedAuthEnv: AuthEnv | undefined;
+let cachedSigningEnv: SigningEnv | undefined;
 
 /** Devuelve las variables validadas del proceso actual (memoizadas). */
 export function getServerEnv(): ServerEnv {
@@ -124,4 +140,9 @@ export function getServerEnv(): ServerEnv {
 export function getAuthEnv(): AuthEnv {
   cachedAuthEnv ??= parseAuthEnv(process.env);
   return cachedAuthEnv;
+}
+
+export function getSigningEnv(): SigningEnv {
+  cachedSigningEnv ??= parseSigningEnv(process.env);
+  return cachedSigningEnv;
 }

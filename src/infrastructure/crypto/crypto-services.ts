@@ -9,7 +9,7 @@ import { hash as argonHash, verify as argonVerify } from '@node-rs/argon2';
 import { createHash, randomBytes } from 'node:crypto';
 import type { ApiKeyCodec } from '@/core/api-keys/api-keys';
 import type { PasswordHasher } from '@/core/identity/ports';
-import type { IdGenerator, SecretTokenService } from '@/core/shared/ports';
+import type { ContentHasher, IdGenerator, SecretTokenService } from '@/core/shared/ports';
 
 const ARGON2_OPTIONS = { memoryCost: 19_456, timeCost: 2, parallelism: 1 } as const;
 
@@ -58,3 +58,7 @@ export class Sha256ApiKeyCodec implements ApiKeyCodec {
 }
 
 export const cryptoIdGenerator: IdGenerator = { uuid: () => crypto.randomUUID() };
+
+export const sha256ContentHasher: ContentHasher = {
+  sha256: (bytes) => createHash('sha256').update(bytes).digest('hex'),
+};

@@ -72,6 +72,30 @@ enum DuplicatePolicy {
   SKIP
 }
 
+enum TemplateFormat {
+  BLOCKS
+  MARKDOWN
+  HTML
+}
+
+enum DocumentKind {
+  PDF
+  PRESENTATION
+  DOCUMENT
+  SPREADSHEET
+  IMAGE
+  HTML
+  MARKDOWN
+  TEXT
+}
+
+enum DocumentStatus {
+  UPLOADED
+  PROCESSING
+  READY
+  FAILED
+}
+
 // ============================================================================
 // Plataforma e identidad
 // ============================================================================
@@ -106,6 +130,8 @@ model Tenant {
   topics        Topic[]
   suppressions  Suppression[]
   imports       ContactImport[]
+  templates     Template[]
+  documents     Document[]
 
   @@map("tenants")
 }
@@ -484,4 +510,94 @@ model ContactImport {
 
   @@index([tenantId, createdAt])
   @@map("contact_imports")
+}
+
+// ============================================================================
+// Plantillas y documentos
+// ============================================================================
+
+/// Plantilla de correo. El contenido vigente se copia en una TemplateVersion inmutable en cada guardado.
+model Template {
+  id             String         @id @default(uuid(7)) @db.Uuid
+  tenantId       String         @map("tenant_id") @db.Uuid
+  name           String
+  description    String?
+  /// Idioma de los textos del sistema en el pie (baja, preferencias).
+  locale         String         @default("es")
+  format         TemplateFormat
+  subject        String
+  preheader      String?
+  /// Contenido según el formato: { blocks } | { markdown } | { html } (templateContentSchema).
+  content        Json
+  /// Número de la última versión; se usa como control de concurrencia optimista.
+  currentVersion Int            @default(1) @map("current_version")
+  createdById    String         @map("created_by_id") @db.Uuid
+  updatedById    String         @map("updated_by_id") @db.Uuid
+  createdAt      DateTime       @default(now()) @map("created_at")
+  updatedAt      DateTime       @updatedAt @map("updated_at")
+
+  tenant   Tenant            @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  versions TemplateVersion[]
+
+  @@unique([tenantId, name])
+  @@index([tenantId, updatedAt])
+  @@map("templates")
+}
+
+/// Instantánea inmutable de una plantilla (historial y restauración).
+model TemplateVersion {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  templateId  String         @map("template_id") @db.Uuid
+  version     Int
+  format      TemplateFormat
+  subject     String
+  preheader   String?
+  content     Json
+  locale      String
+  note        String?
+  createdById String         @map("created_by_id") @db.Uuid
+  createdAt   DateTime       @default(now()) @map("created_at")
+
+  template Template @relation(fields: [templateId], references: [id], onDelete: Cascade)
+
+  @@unique([templateId, version])
+  @@index([tenantId, templateId])
+  @@map("template_versions")
+}
+
+/// Documento subido por el tenant (PDF, presentación, Word, imagen, HTML, Markdown...).
+/// El worker lo convierte a PDF, genera la miniatura de la primera página y extrae el texto.
+model Document {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  tenantId        String         @map("tenant_id") @db.Uuid
+  /// Título visible (editable); por defecto, el nombre del archivo sin extensión.
+  title           String
+  fileName        String         @map("file_name")
+  extension       String
+  kind            DocumentKind
+  mimeType        String         @map("mime_type")
+  sizeBytes       Int            @map("size_bytes")
+  sha256          String
+  storageKey      String         @map("storage_key")
+  pdfKey          String?        @map("pdf_key")
+  thumbnailKey    String?        @map("thumbnail_key")
+  thumbnailWidth  Int?           @map("thumbnail_width")
+  thumbnailHeight Int?           @map("thumbnail_height")
+  pageCount       Int?           @map("page_count")
+  /// Texto extraído (primeras páginas, máx. 200 KB) para búsqueda y para la IA (Fase 4).
+  extractedText   String?        @map("extracted_text")
+  status          DocumentStatus @default(UPLOADED)
+  error           String?
+  attempts        Int            @default(0)
+  createdById     String         @map("created_by_id") @db.Uuid
+  processedAt     DateTime?      @map("processed_at")
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@index([tenantId, sha256])
+  @@map("documents")
 }

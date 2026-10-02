@@ -1,6 +1,12 @@
 /** Repositorio de tenants. Las búsquedas por slug y membresía son globales por naturaleza. */
 import type { MembershipRole } from '@/core/identity/roles';
 import type { TenantContext } from '@/core/shared/tenant-context';
+import {
+  parseBranding,
+  type BrandingRepository,
+  type TenantBranding,
+  type TenantEmailProfile,
+} from '@/core/tenants/branding';
 import type {
   CreateTenantData,
   Tenant,
@@ -9,7 +15,7 @@ import type {
   TenantWithRole,
   UpdateTenantSettingsInput,
 } from '@/core/tenants/tenant';
-import type { PrismaClient } from '../generated/client';
+import type { Prisma, PrismaClient } from '../generated/client';
 import { withDomainErrors } from '../prisma-errors';
 import type { TenantClientCache } from '../tenant-scope.extension';
 
@@ -25,7 +31,7 @@ const TENANT_SELECT = {
   createdAt: true,
 } as const;
 
-export class PrismaTenantRepository implements TenantRepository {
+export class PrismaTenantRepository implements TenantRepository, BrandingRepository {
   constructor(
     private readonly prisma: PrismaClient,
     private readonly clients: TenantClientCache,
@@ -83,6 +89,21 @@ export class PrismaTenantRepository implements TenantRepository {
       where: { id: context.tenantId },
       data: input,
       select: TENANT_SELECT,
+    });
+  }
+
+  async getEmailProfile(context: TenantContext): Promise<TenantEmailProfile> {
+    const tenant = await this.prisma.tenant.findUniqueOrThrow({
+      where: { id: context.tenantId },
+      select: { name: true, postalAddress: true, defaultLocale: true, branding: true },
+    });
+    return { ...tenant, branding: parseBranding(tenant.branding) };
+  }
+
+  async saveBranding(context: TenantContext, branding: TenantBranding): Promise<void> {
+    await this.prisma.tenant.update({
+      where: { id: context.tenantId },
+      data: { branding: { ...branding } as Prisma.InputJsonObject },
     });
   }
 

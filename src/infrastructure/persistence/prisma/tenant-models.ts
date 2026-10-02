@@ -19,6 +19,9 @@ export const TENANT_MODEL_RELATIONS = {
   ContactTopicSubscription: ['contact', 'topic'],
   Suppression: ['tenant'],
   ContactImport: ['tenant', 'list'],
+  Template: ['tenant', 'versions'],
+  TemplateVersion: ['template'],
+  Document: ['tenant'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type TenantModelName = keyof typeof TENANT_MODEL_RELATIONS;

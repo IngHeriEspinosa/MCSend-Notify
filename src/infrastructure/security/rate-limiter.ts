@@ -16,6 +16,7 @@ export const RATE_LIMITS = {
   login: { keyPrefix: 'rl:login', points: 10, durationSeconds: 15 * 60 },
   publicApi: { keyPrefix: 'rl:api', points: 600, durationSeconds: 60 },
   upload: { keyPrefix: 'rl:upload', points: 20, durationSeconds: 60 * 60 },
+  documentUpload: { keyPrefix: 'rl:docs', points: 60, durationSeconds: 60 * 60 },
   invitation: { keyPrefix: 'rl:invite', points: 20, durationSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 

@@ -11,7 +11,9 @@ Las reglas del proyecto prohíben los estilos inline en la UI. Sin embargo, los 
 ## Decisión
 
 - La prohibición de estilos inline aplica a la **UI de la aplicación**, que usa Tailwind, MUI y variables CSS.
-- El **HTML de los correos** se genera con React Email y, para HTML pegado por el usuario, se pasa por `juice` para mover el CSS a línea. Los colores y fuentes salen de los mismos tokens de diseño (`src/common/theme/tokens.ts`).
+- El **HTML de los correos** se genera con estilos en una hoja `<style>` que `juice` aplica en línea; el HTML pegado por el usuario también pasa por `juice`. Los colores salen del branding de cada tenant.
+
+> **Actualización (Fase 2):** el layout se genera sin React Email; ver [ADR 0006](0006-email-rendering.md).
 
 ## Consecuencias
 

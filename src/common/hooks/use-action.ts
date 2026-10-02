@@ -16,6 +16,8 @@ export function useActionErrorMessage() {
       const reason = error.details?.reason;
       if (error.code === 'INVALID_STATE' && reason === 'LAST_OWNER') return t('lastOwner');
       if (error.code === 'CONFLICT' && reason === 'ALREADY_MEMBER') return t('alreadyMember');
+      if (error.code === 'CONFLICT' && reason === 'STALE_VERSION') return t('staleVersion');
+      if (error.code === 'VALIDATION' && reason === 'TEMPLATE_RENDER') return t('templateRender');
       if (error.code === 'UNEXPECTED') return t('UNEXPECTED', { traceId: error.traceId ?? '-' });
       return t(error.code);
     },

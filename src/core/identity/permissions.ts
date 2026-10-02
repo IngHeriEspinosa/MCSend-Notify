@@ -20,6 +20,10 @@ export const PERMISSIONS = [
   'segment:write',
   'field:manage',
   'topic:manage',
+  'template:read',
+  'template:write',
+  'document:read',
+  'document:write',
   'apikey:manage',
   'audit:read',
 ] as const;
@@ -34,9 +38,19 @@ const EDITOR_PERMISSIONS: readonly Permission[] = [
   'contact:import',
   'list:write',
   'segment:write',
+  'template:read',
+  'template:write',
+  'document:read',
+  'document:write',
 ];
 
-const VIEWER_PERMISSIONS: readonly Permission[] = ['tenant:read', 'member:read', 'contact:read'];
+const VIEWER_PERMISSIONS: readonly Permission[] = [
+  'tenant:read',
+  'member:read',
+  'contact:read',
+  'template:read',
+  'document:read',
+];
 
 export const ROLE_PERMISSIONS: Record<MembershipRole, ReadonlySet<Permission>> = {
   OWNER: new Set(PERMISSIONS),

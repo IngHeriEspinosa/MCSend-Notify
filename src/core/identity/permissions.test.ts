@@ -36,6 +36,18 @@ describe('permisos por rol', () => {
     expect(can(apiKey, 'contact:write')).toBe(false);
   });
 
+  it('plantillas y documentos: el EDITOR los gestiona y el VIEWER solo los consulta', () => {
+    expect(can(user('EDITOR'), 'template:write')).toBe(true);
+    expect(can(user('EDITOR'), 'document:write')).toBe(true);
+    expect(can(user('VIEWER'), 'template:read')).toBe(true);
+    expect(can(user('VIEWER'), 'document:read')).toBe(true);
+    expect(can(user('VIEWER'), 'template:write')).toBe(false);
+    expect(can(user('VIEWER'), 'document:write')).toBe(false);
+    expect(
+      can({ type: 'apiKey', apiKeyId: 'k', scopes: ['contacts:write'] }, 'template:read'),
+    ).toBe(false);
+  });
+
   it('assertCan lanza FORBIDDEN', () => {
     const context: TenantContext = { tenantId: 't', tenantSlug: 's', actor: user('VIEWER') };
     expect(() => assertCan(context, 'contact:delete')).toThrow(DomainError);

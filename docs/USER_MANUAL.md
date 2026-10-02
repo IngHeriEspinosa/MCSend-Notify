@@ -35,6 +35,8 @@ Esta sección es para el equipo técnico que instala la plataforma.
    pnpm dev:worker
    ```
 
+   Para procesar documentos, el procesador de tareas necesita poppler. En Windows es más sencillo ejecutarlo en Docker con `docker compose up -d --build worker`, en lugar de `pnpm dev:worker`.
+
 4. Abre http://localhost:3020 en el navegador.
 5. Entra con `SEED_ADMIN_EMAIL` y `SEED_ADMIN_PASSWORD`. `pnpm setup` genera la contraseña y la guarda en tu archivo `.env`; no la compartas.
 
@@ -67,12 +69,12 @@ Si perteneces a varias aplicaciones, elige una en **Elige una aplicación**. Pue
 
 ### Roles
 
-| Rol           | Puede                                                             |
-| ------------- | ----------------------------------------------------------------- |
-| Propietario   | Todo, incluida la gestión de otros propietarios                   |
-| Administrador | Todo salvo gestionar propietarios                                 |
-| Editor        | Gestionar contactos, importaciones, listas, segmentos y etiquetas |
-| Lector        | Consultar contactos, listas, segmentos y miembros                 |
+| Rol           | Puede                                                                                     |
+| ------------- | ----------------------------------------------------------------------------------------- |
+| Propietario   | Todo, incluida la gestión de otros propietarios                                           |
+| Administrador | Todo salvo gestionar propietarios                                                         |
+| Editor        | Gestionar contactos, importaciones, listas, segmentos, etiquetas, plantillas y documentos |
+| Lector        | Consultar contactos, listas, segmentos, miembros, plantillas y documentos                 |
 
 ### Idioma y tema
 
@@ -128,11 +130,73 @@ Consejos:
   4. El recuento de contactos se actualiza mientras editas.
   5. **Ver contactos** abre la tabla filtrada por el segmento.
 
-## 6. Configuración
+## 6. Documentos
+
+En **Documentos** guardas los archivos que quieres enlazar en tus correos. Para cada uno, la plataforma genera una miniatura de la primera página y extrae el texto.
+
+1. Arrastra un archivo a la zona de carga o pulsa para seleccionarlo. Se admiten:
+   - presentaciones: PPTX, PPT y ODP;
+   - documentos: PDF, DOCX, DOC y ODT;
+   - hojas de cálculo: XLSX, XLS y ODS;
+   - imágenes: PNG, JPG, GIF y WebP;
+   - HTML, Markdown y texto.
+2. El tamaño máximo es 50 MB. Por seguridad no se admiten SVG, ejecutables ni archivos comprimidos.
+3. El documento aparece como **En cola** y después **Procesando**. En unos segundos pasa a **Listo** con su miniatura; la página se actualiza sola.
+4. Pulsa un documento para ver su detalle:
+   - miniatura, tipo, páginas, tamaño y texto extraído;
+   - **Descargar original**, **Abrir PDF** y **Cambiar título**;
+   - **Reintentar**, si el procesamiento falló;
+   - **Eliminar**. Las plantillas que lo usan mostrarán un aviso y los enlaces de los correos ya enviados dejarán de funcionar.
+
+Usa el buscador y el filtro **Tipo** para encontrar documentos.
+
+## 7. Plantillas de correo
+
+### Crear una plantilla
+
+1. En **Plantillas**, pulsa **Nueva plantilla**.
+2. Escribe el nombre y el asunto, elige el idioma del correo y el formato:
+   - **Bloques** (recomendado): editor visual por bloques.
+   - **Markdown:** un texto con formato sencillo.
+   - **HTML:** pega tu propio HTML. Se limpia de scripts y contenido peligroso y se envuelve con la marca de la aplicación.
+3. Pulsa **Crear**. Se abre el editor.
+
+### El editor
+
+- **Mensaje:** asunto (se recomiendan 78 caracteres como máximo), preencabezado (el texto que se ve junto al asunto en la bandeja) e idioma.
+- **Contenido (bloques):** pulsa **Añadir bloque** y elige:
+  - **Titular** y **Texto** (admite Markdown: `**negrita**`, listas, enlaces);
+  - **Botón** con enlace;
+  - **Imagen** desde una URL https o desde la biblioteca de documentos, con texto alternativo obligatorio;
+  - **Documento con miniatura**: tarjeta con la miniatura del documento, su tipo y páginas, y un botón para descargarlo;
+  - **Dos columnas**, **Separador** y **Espacio**.
+
+  Usa las flechas para cambiar el orden, el icono de copiar para duplicar y la papelera para quitar un bloque.
+
+- **Variables:** abre **Variables disponibles** y copia la que necesites, por ejemplo `{{ contact.first_name }}` o `{{ fields.plan }}`. Para que una variable tenga un valor por defecto, escribe `{{ contact.company | default: "tu equipo" }}`.
+
+### Vista previa y comprobaciones
+
+- La vista previa se actualiza mientras escribes. Puedes verla en **escritorio** o **móvil**, en **modo claro** u **oscuro**, y **como** un contacto real o el contacto de ejemplo.
+- **Comprobaciones antes de enviar** avisa de lo que conviene corregir:
+  - errores: falta la dirección postal, hay un documento no disponible o una variable mal escrita;
+  - avisos: variable desconocida, asunto largo, sin preencabezado, imágenes sin texto alternativo, enlaces sin https, o correo de más de 102 KB (Gmail lo recortaría).
+
+### Guardar y versiones
+
+- **Guardar versión** crea una versión nueva. Puedes añadir una nota, por ejemplo "Nuevo asunto".
+- Si otra persona guardó la plantilla mientras la editabas, se te avisa y no se pierde su trabajo. Recarga la página para ver la última versión.
+- **Historial** muestra todas las versiones, con autor y fecha. **Restaurar** crea una versión nueva con el contenido antiguo.
+- Si sales con cambios sin guardar, el navegador te avisará.
+
+En la lista de plantillas también puedes **duplicar** o **eliminar** una plantilla.
+
+## 8. Configuración
 
 | Sección               | Para qué sirve                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------ |
 | General               | Nombre, idioma, zona horaria y **dirección postal** (obligatoria en el pie de los correos comerciales) |
+| Marca de los correos  | Logotipo, color principal, color de los botones y texto del pie de todos los correos                   |
 | Miembros              | Invitar personas, cambiar su rol o quitarles el acceso                                                 |
 | Campos personalizados | Datos adicionales de los contactos: texto, número, fecha, sí/no o selección                            |
 | Etiquetas             | Marcas libres para clasificar contactos                                                                |
@@ -148,6 +212,14 @@ Consejos:
    - si la persona no tiene cuenta, crea una contraseña de al menos 12 caracteres;
    - si ya tiene cuenta, inicia sesión con ese mismo correo y acepta.
 
+### Marca de los correos
+
+1. **Logotipo:** arrastra un PNG, JPEG o WebP de hasta 2 MB. Se ajusta a 480×160 px. Si no hay logotipo, la cabecera muestra el nombre de la aplicación.
+2. **Color principal:** se usa en enlaces y en la franja superior. Debe contrastar con el blanco.
+3. **Color de los botones:** el texto del botón se elige automáticamente, blanco u oscuro.
+4. El panel **Contraste (WCAG AA)** indica si cada color **Cumple**. Si no cumple, no se puede guardar.
+5. **Texto del pie** (opcional): admite Markdown sencillo. La dirección postal y los enlaces de baja se añaden siempre.
+
 ### Crear una clave de API
 
 1. En **Claves de API**, pulsa **Nueva clave**, ponle un nombre y elige los permisos y la caducidad.
@@ -155,28 +227,33 @@ Consejos:
 3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts`. El README tiene un ejemplo.
 4. Si la clave se expone, pulsa **Revocar**: deja de funcionar de inmediato.
 
-## 7. Funciones próximas
+## 9. Funciones próximas
 
 | Función                                                                                    | Estado                |
 | ------------------------------------------------------------------------------------------ | --------------------- |
-| Plantillas y documentos (HTML, Markdown, PDF, Word, PowerPoint) con miniatura              | Próximamente (Fase 2) |
 | Campañas, envíos programados, pruebas A/B, métricas de apertura y clics, bajas automáticas | Próximamente (Fase 3) |
 | Envío de invitaciones por correo                                                           | Próximamente (Fase 3) |
 | Redacción con IA, resúmenes semanales automáticos y aprobación antes de enviar             | Próximamente (Fase 4) |
 | Instalación como aplicación (PWA)                                                          | Próximamente (Fase 5) |
 
-## 8. Resolución de problemas
+## 10. Resolución de problemas
 
-| Problema                                                            | Qué hacer                                                                              |
-| ------------------------------------------------------------------- | -------------------------------------------------------------------------------------- |
-| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                   |
-| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador               |
-| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                    |
-| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                            |
-| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`) |
-| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                         |
-| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar             |
-| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`          |
-| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                    |
+| Problema                                                            | Qué hacer                                                                                     |
+| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
+| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                          |
+| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador                      |
+| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                           |
+| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                                   |
+| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`)        |
+| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                                |
+| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar                    |
+| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`                 |
+| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                           |
+| Un documento se queda "En cola"                                     | El procesador de tareas no está en marcha                                                     |
+| Un documento muestra "Faltan herramientas de conversión"            | El procesador de tareas no tiene poppler: ejecútalo en Docker (`docker compose up -d worker`) |
+| Un documento queda en "Error"                                       | Comprueba que el archivo se abre y no tiene contraseña; después pulsa **Reintentar**          |
+| "Otra persona guardó la plantilla mientras la editabas"             | Recarga la página: verás la última versión y podrás volver a aplicar tus cambios              |
+| "Contraste insuficiente" al guardar la marca                        | Elige un color más oscuro para los enlaces o cambia el color de los botones                   |
+| La vista previa dice que hay campos incompletos                     | Revisa los bloques: los botones necesitan un enlace https y las imágenes, texto alternativo   |
 
 Si el problema persiste, contacta con el equipo de desarrollo. Indica el **código de seguimiento** que muestran los errores inesperados, o el `x-trace-id` de las cabeceras de la respuesta. Ambos permiten localizar la operación en los logs.

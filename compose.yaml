@@ -87,10 +87,19 @@ services:
       start_period: 15s
 
   # Conversión de PPTX/DOCX/HTML/MD a PDF (LibreOffice y Chromium).
+  # Chromium sin JavaScript y sin acceso a URL externas: un HTML subido no puede ejecutar
+  # código ni hacer peticiones a la red interna (SSRF).
   gotenberg:
     image: gotenberg/gotenberg:8.25
     restart: unless-stopped
-    command: ['gotenberg', '--api-timeout=120s', '--log-level=warn']
+    command:
+      [
+        'gotenberg',
+        '--api-timeout=120s',
+        '--log-level=warn',
+        '--chromium-disable-javascript=true',
+        '--chromium-allow-list=^file:///tmp/.*',
+      ]
     healthcheck:
       test: ['CMD', 'curl', '-fsS', 'http://localhost:3000/health']
       interval: 10s

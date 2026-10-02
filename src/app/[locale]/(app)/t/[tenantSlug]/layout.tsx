@@ -34,9 +34,17 @@ function buildNavigation(slug: string, actor: Actor): NavGroup[] {
       ],
     },
     {
+      key: 'content' as const,
+      items: [
+        ...item('templates', 'templates', 'template:read'),
+        ...item('documents', 'documents', 'document:read'),
+      ],
+    },
+    {
       key: 'settings' as const,
       items: [
         ...item('general', 'settings/general', 'tenant:read'),
+        ...item('branding', 'settings/branding', 'tenant:read'),
         ...item('members', 'settings/members', 'member:read'),
         ...item('fields', 'settings/fields', 'field:manage'),
         ...item('tags', 'settings/tags', 'contact:write'),

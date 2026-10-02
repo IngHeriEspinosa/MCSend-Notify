@@ -5,6 +5,9 @@
  *   cargan ('strict-dynamic'). En desarrollo se permite 'unsafe-eval' para el HMR.
  * - Estilos: 'unsafe-inline' porque MUI/Emotion y React usan atributos `style`; el riesgo de
  *   inyección de estilos es bajo y queda documentado en docs/TECHNICAL.md.
+ * - Imágenes: además de las propias, cualquier origen https. La vista previa de correos
+ *   (iframe `srcdoc`, que hereda esta política) muestra imágenes externas de las plantillas.
+ *   Una imagen no ejecuta código; los scripts siguen limitados por nonce.
  */
 export interface ContentSecurityPolicyOptions {
   nonce: string;
@@ -24,7 +27,7 @@ export function buildContentSecurityPolicy({
     'default-src': ["'self'"],
     'script-src': scriptSrc,
     'style-src': ["'self'", "'unsafe-inline'"],
-    'img-src': ["'self'", 'data:', 'blob:'],
+    'img-src': ["'self'", 'data:', 'blob:', 'https:'],
     'font-src': ["'self'", 'data:'],
     'connect-src': ["'self'"],
     'frame-src': ["'self'"],
