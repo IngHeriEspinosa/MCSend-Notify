@@ -7,10 +7,11 @@ import { fileURLToPath } from 'node:url';
 import { defineConfig } from 'vitest/config';
 
 const srcDir = fileURLToPath(new URL('./src', import.meta.url));
+const testsDir = fileURLToPath(new URL('./tests', import.meta.url));
 
 export default defineConfig({
   resolve: {
-    alias: { '@': srcDir },
+    alias: { '@tests': testsDir, '@': srcDir },
   },
   test: {
     // next-intl importa `next/server` sin extensión; Vitest debe resolverlo con Vite, no con Node.
@@ -35,7 +36,9 @@ export default defineConfig({
           name: 'integration',
           environment: 'node',
           include: ['tests/integration/**/*.int.test.ts'],
-          testTimeout: 30_000,
+          globalSetup: ['tests/integration/global-setup.ts'],
+          testTimeout: 90_000,
+          hookTimeout: 60_000,
           fileParallelism: false,
         },
       },

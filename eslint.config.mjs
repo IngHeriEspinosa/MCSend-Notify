@@ -110,7 +110,14 @@ export default defineConfig([
     },
   },
   {
-    files: ['scripts/**/*.mjs', 'prisma/**/*.ts', '*.config.{ts,mjs}'],
+    // Scripts de línea de comandos y tests (métricas de rendimiento) pueden escribir en consola.
+    files: [
+      'scripts/**/*.mjs',
+      'prisma/**/*.ts',
+      '*.config.{ts,mjs}',
+      'tests/**/*.ts',
+      '**/*.test.ts',
+    ],
     rules: { 'no-console': 'off' },
   },
 ]);

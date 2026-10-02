@@ -9,6 +9,8 @@ Autor: **Ing. Heri Espinosa**
 | [0001](adr/0001-single-project-with-worker.md) | Proyecto único de Next.js con el worker en `src/worker`, sin monorepo                      |
 | [0002](adr/0002-inline-css-in-emails.md)       | El HTML de los correos usa CSS en línea; la regla "sin estilos inline" aplica solo a la UI |
 | [0003](adr/0003-seaweedfs-object-storage.md)   | SeaweedFS sustituye a MinIO como almacenamiento S3 compatible                              |
+| [0004](adr/0004-authentication.md)             | Auth.js v5 con credenciales (argon2id) y Microsoft Entra ID, sesión JWT revocable          |
+| [0005](adr/0005-tenant-isolation.md)           | Aislamiento multi-tenant en tres capas: dominio, extensión de Prisma y tests de guardia    |
 
 Otras decisiones de la Fase 0:
 
@@ -16,57 +18,96 @@ Otras decisiones de la Fase 0:
 - **Puertos propios en desarrollo:** app 3020 y PostgreSQL 5452. Así no chocan con otros proyectos de la misma máquina (MCLog, MCSupport).
 - **ESLint 9:** los plugins de `eslint-config-next` 16 aún no soportan ESLint 10.
 
+Decisiones de la Fase 1:
+
+- **Segmentos compilados a SQL parametrizado** (no a filtros de Prisma): permite comparaciones en atributos JSONB (números, fechas `YYYY-MM-DD`, booleanos) con semántica controlada. Un evaluador en memoria del dominio define la semántica de referencia y un test de integración comprueba que SQL y evaluador devuelven exactamente los mismos contactos en 37 combinaciones de reglas.
+- **Upsert por lotes con una sentencia `INSERT ... ON CONFLICT`** e `uuidv7()` nativo de PostgreSQL 18. Al actualizar se completan los datos vacíos y se fusionan los atributos, pero nunca se cambia el estado: un contacto dado de baja sigue de baja.
+- **Subida de archivos por route handler** (las Server Actions limitan el cuerpo a 1 MB), con comprobación explícita de origen (CSRF).
+- **Invitaciones por enlace** de un solo uso; el envío por correo llegará con el correo del sistema (Fase 3).
+- **Cifrado AES-GCM de credenciales** pospuesto a la Fase 3, que es cuando se guardan credenciales de proveedores (YAGNI).
+
 ## 2. Variables de entorno
 
 [src/common/config/env.ts](../src/common/config/env.ts) valida las variables con Zod. Lo hace de forma perezosa: la app las valida al arrancar desde `instrumentation.ts` y el worker en su bootstrap. Una configuración inválida detiene el proceso con un mensaje que nombra la variable.
 
-| Variable                      | Obligatoria                  | Descripción                                                             |
-| ----------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
-| `NODE_ENV`                    | No (`development`)           | Modo de ejecución                                                       |
-| `APP_ENV`                     | No (`development`)           | `development`, `staging` o `production`; también es el entorno en MCLog |
-| `APP_URL`                     | No (`http://localhost:3020`) | URL pública de la app                                                   |
-| `LOG_LEVEL`                   | No (`info`)                  | Nivel mínimo de log                                                     |
-| `DATABASE_URL`                | Sí                           | URL de PostgreSQL                                                       |
-| `REDIS_URL`                   | Sí                           | URL de Redis, con contraseña                                            |
-| `GOTENBERG_URL`               | Sí                           | URL del servicio de conversión                                          |
-| `WORKER_HEALTH_PORT`          | No (`9464`)                  | Puerto del servidor de salud del worker                                 |
-| `MCLOG_URL` y `MCLOG_API_KEY` | No (juntas)                  | Envío de logs `warn` o superiores a MCLog                               |
-| `MCLOG_APPLICATION`           | No (`mc-send-notify`)        | Nombre de aplicación en MCLog                                           |
+| Variable                                                               | Obligatoria                  | Descripción                                                             |
+| ---------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
+| `NODE_ENV`                                                             | No (`development`)           | Modo de ejecución                                                       |
+| `APP_ENV`                                                              | No (`development`)           | `development`, `staging` o `production`; también es el entorno en MCLog |
+| `APP_URL`                                                              | No (`http://localhost:3020`) | URL pública de la app                                                   |
+| `LOG_LEVEL`                                                            | No (`info`)                  | Nivel mínimo de log                                                     |
+| `DATABASE_URL`                                                         | Sí                           | URL de PostgreSQL                                                       |
+| `REDIS_URL`                                                            | Sí                           | URL de Redis, con contraseña                                            |
+| `GOTENBERG_URL`                                                        | Sí                           | URL del servicio de conversión                                          |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Sí                           | Almacenamiento S3 compatible                                            |
+| `S3_REGION`, `S3_FORCE_PATH_STYLE`                                     | No (`us-east-1`, `true`)     | Ajustes del cliente S3                                                  |
+| `WORKER_HEALTH_PORT`                                                   | No (`9464`)                  | Puerto del servidor de salud del worker                                 |
+| `MCLOG_URL` y `MCLOG_API_KEY`                                          | No (juntas)                  | Envío de logs `warn` o superiores a MCLog                               |
+| `MCLOG_APPLICATION`                                                    | No (`mc-send-notify`)        | Nombre de aplicación en MCLog                                           |
 
-`.env.example` documenta además las variables que se validarán en fases posteriores: S3, Auth.js, cifrado, tracking, correo del sistema e IA. `pnpm setup` genera todos los secretos con `crypto.randomBytes` y nunca los imprime.
+Variables de autenticación (solo la app web, `getAuthEnv()`):
 
-## 3. Modelo de datos (Fase 0)
+| Variable                                           | Obligatoria          | Descripción                                       |
+| -------------------------------------------------- | -------------------- | ------------------------------------------------- |
+| `AUTH_SECRET`                                      | Sí (≥ 32 caracteres) | Firma de las sesiones JWT                         |
+| `AUTH_CREDENTIALS_ENABLED`                         | No (`true`)          | Inicio de sesión con email y contraseña           |
+| `AUTH_MICROSOFT_ENTRA_ID_ID`, `_SECRET`, `_ISSUER` | No (las tres juntas) | SSO con Microsoft Entra ID                        |
+| `AUTH_ALLOWED_EMAIL_DOMAINS`                       | No                   | Dominios permitidos para SSO, separados por comas |
+
+Debe haber al menos un método de inicio de sesión activo. `.env.example` documenta además las variables de fases posteriores (cifrado, tracking, correo del sistema e IA) y las del seed (`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`). `pnpm setup` genera los secretos con `crypto.randomBytes`, completa un `.env` existente con las variables nuevas y nunca imprime los valores.
+
+## 3. Modelo de datos
 
 ```mermaid
 erDiagram
   TENANT ||--o{ TENANT_MEMBERSHIP : tiene
   USER ||--o{ TENANT_MEMBERSHIP : pertenece
-  USER ||--o{ ACCOUNT : "SSO (Auth.js)"
-  USER ||--o{ SESSION : "Auth.js"
-  TENANT {
+  TENANT ||--o{ INVITATION : emite
+  TENANT ||--o{ API_KEY : tiene
+  TENANT ||--o{ CONTACT : tiene
+  TENANT ||--o{ CONTACT_FIELD : define
+  TENANT ||--o{ CONTACT_LIST : tiene
+  TENANT ||--o{ SEGMENT : tiene
+  TENANT ||--o{ TOPIC : tiene
+  TENANT ||--o{ TAG : tiene
+  TENANT ||--o{ CONTACT_IMPORT : registra
+  CONTACT ||--o{ LIST_MEMBERSHIP : pertenece
+  CONTACT_LIST ||--o{ LIST_MEMBERSHIP : contiene
+  CONTACT ||--o{ CONTACT_TAG : tiene
+  TAG ||--o{ CONTACT_TAG : marca
+  CONTACT ||--o{ CONTACT_TOPIC_SUBSCRIPTION : decide
+  TOPIC ||--o{ CONTACT_TOPIC_SUBSCRIPTION : agrupa
+  CONTACT {
     uuid id
-    string slug UK
-    string name
-    enum status
-    json branding
-    string postalAddress
-    json settings
-    int onboardingStep
+    string emailNormalized "único por tenant"
+    json attributes "campos personalizados (GIN)"
+    enum status "ACTIVE | UNSUBSCRIBED | BOUNCED | COMPLAINED | INVALID"
+    string source "manual | import | api"
+    datetime consentAt
   }
-  USER {
-    uuid id
-    string email UK
-    string passwordHash
-    enum platformRole
-    int sessionVersion
-    int failedLoginCount
+  SEGMENT {
+    json rules "SegmentRuleSet validado con Zod"
+    int lastCount
   }
-  TENANT_MEMBERSHIP {
-    uuid tenantId FK
-    uuid userId FK
-    enum role "OWNER | ADMIN | EDITOR | VIEWER"
+  API_KEY {
+    string prefix
+    string keyHash "SHA-256"
+    string_array scopes
+  }
+  AUDIT_LOG {
+    uuid tenantId "sin FK: sobrevive a las entidades"
+    string action
+    json metadata
   }
 ```
+
+Tablas añadidas en la Fase 1:
+
+- `invitations`, `api_keys` y `audit_logs`;
+- `contacts`, `contact_fields`, `contact_lists`, `list_memberships`, `tags`, `contact_tags`;
+- `segments`, `topics`, `contact_topic_subscriptions`, `suppressions` y `contact_imports`.
+
+Un trigger impide `UPDATE` y `DELETE` en `audit_logs`.
 
 Convenciones del modelo:
 
@@ -79,15 +120,15 @@ El cliente Prisma se genera en `src/infrastructure/persistence/prisma/generated`
 
 ## 4. Servicios y salud
 
-| Endpoint                    | Tipo                 | Respuesta                                                |
-| --------------------------- | -------------------- | -------------------------------------------------------- |
-| `GET /api/health`           | Liveness             | `200` si el proceso web responde                         |
-| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas            |
-| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers corren |
+| Endpoint                    | Tipo                 | Respuesta                                                                                  |
+| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------ |
+| `GET /api/health`           | Liveness             | `200` si el proceso web responde                                                           |
+| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas                                              |
+| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers (`maintenance`, `contact-import`) corren |
 
 La readiness distingue dos tipos de dependencias:
 
-- **Críticas:** PostgreSQL y Redis.
+- **Críticas:** PostgreSQL, Redis y el almacenamiento S3.
 - **Informativas:** Gotenberg y el latido del worker.
 
 La respuesta pública solo indica `up` o `down`. El detalle del error va a los logs, para no exponer hosts ni cadenas de conexión.
@@ -101,19 +142,29 @@ La respuesta pública solo indica `up` o `down`. El detalle del error va a los l
   - el buffer está acotado a 1000 entradas y los descartes se cuentan;
   - la excepción se envía completa (clase, código y stack) para que MCLog agrupe los errores.
 - Un fallo de MCLog nunca rompe la aplicación.
-- `instrumentation.ts` registra los errores de petición con método, ruta y `traceId`.
+- `instrumentation.ts` registra los errores de petición con método, ruta y `traceId`. Las desconexiones del cliente (navegación cancelada o _prefetch_ abortado) se registran en nivel `debug`, porque no son fallos del servidor.
+- Las Server Actions devuelven al usuario un código de seguimiento (`traceId`) ante errores inesperados, que permite localizar el detalle en los logs.
 
 ## 6. Seguridad (OWASP)
 
-| Control              | Implementación                                                                                                                           |
-| -------------------- | ---------------------------------------------------------------------------------------------------------------------------------------- |
-| CSP con nonce        | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción |
-| Cabeceras            | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                               |
-| Secretos             | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                             |
-| Logs                 | Redacción de credenciales; la readiness no expone errores                                                                                |
-| TraceId              | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                          |
-| Docker               | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                       |
-| Cadena de suministro | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados          |
+| Control                 | Implementación                                                                                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción      |
+| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                    |
+| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                  |
+| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                     |
+| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                               |
+| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                            |
+| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados               |
+| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`             |
+| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants            |
+| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                 |
+| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                 |
+| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                 |
+| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados             |
+| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas |
+| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                   |
+| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                               |
 
 Decisión sobre estilos: `style-src` permite `'unsafe-inline'` porque MUI, Emotion y React usan atributos `style`. El riesgo de inyección de estilos es bajo frente al de scripts, que sí exige nonce.
 
@@ -145,10 +196,19 @@ Los contrastes se verifican con tests en [tokens.test.ts](../src/common/theme/to
 
 ## 8. Testing
 
-| Proyecto Vitest | Alcance                                                                       | Comando         |
-| --------------- | ----------------------------------------------------------------------------- | --------------- |
-| `unit`          | Utilidades, configuración, tokens, observabilidad, worker y matcher del proxy | `pnpm test`     |
-| `integration`   | PostgreSQL y Redis reales (desde la Fase 1)                                   | `pnpm test:int` |
+| Proyecto Vitest | Alcance                                                                                                                                                | Comando         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ | --------------- |
+| `unit`          | Dominio (permisos, invitaciones, segmentos, mapeo de importación), criptografía, lectura CSV/XLSX, extensión de tenant, utilidades y matcher del proxy | `pnpm test`     |
+| `integration`   | PostgreSQL real: aislamiento entre tenants, paridad SQL ↔ evaluador de segmentos, upsert por lotes, importación de 10.000 filas y upsert de la API     | `pnpm test:int` |
+
+Los tests de integración usan el servicio efímero `postgres-test` (en memoria): `docker compose --profile test up -d --wait postgres-test`. Cada test crea sus propios tenants, así que no necesitan borrar datos.
+
+Además, se verificó de extremo a extremo con Chrome _headless_ (CDP), contra `pnpm dev` y contra las imágenes de producción:
+
+- login y redirecciones;
+- contactos, búsqueda, segmentos e importación procesada por el worker;
+- invitaciones, claves de API y API pública;
+- CSRF, IDOR, auditoría y móvil.
 
 El test del matcher del proxy compila el patrón con la misma función que usa Next.js. Next.js elimina las barras invertidas, y un `\.` mal puesto dejaba sin CSP ni idioma a todas las páginas salvo la raíz.
 
@@ -161,10 +221,12 @@ El test del matcher del proxy compila el patrón con la misma función que usa N
 
 ## 10. Problemas conocidos y soluciones
 
-| Síntoma                                                       | Causa                                       | Solución                                                 |
-| ------------------------------------------------------------- | ------------------------------------------- | -------------------------------------------------------- |
-| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                    | Copiar la CA raíz a `docker/certs/`                      |
-| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h        | Fijar la versión anterior                                |
-| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación | Decidir `true` o `false` en `allowBuilds`                |
-| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto            | Cambiar el puerto en `compose.override.yaml` y en `.env` |
-| Readiness con `worker: down`                                  | El worker no está en marcha                 | `pnpm dev:worker` o `docker compose up worker`           |
+| Síntoma                                                       | Causa                                       | Solución                                                   |
+| ------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------- |
+| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                    | Copiar la CA raíz a `docker/certs/`                        |
+| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h        | Fijar la versión anterior                                  |
+| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación | Decidir `true` o `false` en `allowBuilds`                  |
+| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto            | Cambiar el puerto en `compose.override.yaml` y en `.env`   |
+| Readiness con `worker: down`                                  | El worker no está en marcha                 | `pnpm dev:worker` o `docker compose up worker`             |
+| Una importación se queda en "En cola"                         | El worker no está en marcha                 | Iniciar el worker; el job se procesa al arrancar           |
+| `pnpm test:int` falla al conectar                             | `postgres-test` no está levantado           | `docker compose --profile test up -d --wait postgres-test` |

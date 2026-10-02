@@ -2,7 +2,18 @@
 
 Gestor multi-tenant de envío automático de correos para **Multicómputos**. Cada aplicación o producto (MCSupport, MCLog, etc.) es un _tenant_ aislado con sus propios contactos, plantillas, remitentes, marca y proveedores. La plataforma permite enviar actualizaciones y resúmenes semanales a los clientes, redactarlos con IA, adjuntar documentos con miniatura y automatizar los envíos recurrentes.
 
-> **Estado:** Fase 0 completada (andamiaje, infraestructura, observabilidad, tema de marca e i18n). Las siguientes fases están en el [roadmap](#roadmap).
+> **Estado:** Fases 0 y 1 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos dinámicos, importaciones CSV/XLSX y claves de API. Las siguientes fases están en el [roadmap](#roadmap).
+
+## Funcionalidades disponibles
+
+- **Multi-aplicación:** cada producto es un tenant aislado en la capa de datos; un usuario puede pertenecer a varios con roles distintos.
+- **Acceso:** inicio de sesión con email y contraseña (argon2id, bloqueo por intentos) y, opcionalmente, con Microsoft Entra ID.
+- **Roles:** Propietario, Administrador, Editor y Lector, con invitaciones por enlace de un solo uso.
+- **Contactos:** alta manual, campos personalizados (texto, número, fecha, sí/no, selección), etiquetas, temas de suscripción y consentimiento.
+- **Importación:** archivos CSV o Excel de hasta 100.000 filas, con mapeo de columnas sugerido, deduplicación e informe de errores.
+- **Listas y segmentos:** listas estáticas y segmentos dinámicos con reglas anidadas y recuento en vivo.
+- **API pública:** `/api/v1/contacts` con claves de API por tenant para sincronizar contactos desde otras aplicaciones.
+- **Auditoría:** registro inmutable de las acciones de cada tenant.
 
 ## Stack
 
@@ -29,12 +40,22 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 
 ```bash
 pnpm install
-pnpm setup        # crea .env con secretos aleatorios, levanta la infraestructura, migra y carga datos
+pnpm setup        # crea o completa .env con secretos aleatorios, levanta la infraestructura, migra y carga datos
 pnpm dev          # app en http://localhost:3020
 pnpm dev:worker   # worker en otra terminal, salud en http://localhost:9464/health
 ```
 
 `pnpm setup` es idempotente: se puede repetir sin perder datos ni regenerar secretos.
+
+El acceso inicial es la cuenta `SEED_ADMIN_EMAIL` con la contraseña `SEED_ADMIN_PASSWORD` de tu archivo `.env` (generada por `pnpm setup`). Los datos de ejemplo están en la aplicación **MCSupport**.
+
+### API de contactos
+
+```bash
+curl -X POST http://localhost:3020/api/v1/contacts   -H "Authorization: Bearer mcsn_xxxxxxxx_..."   -H "Content-Type: application/json"   -d '{"email":"cliente@empresa.com","firstName":"Ana","attributes":{"plan":"Enterprise"}}'
+```
+
+La clave se crea en **Configuración → Claves de API** y solo se muestra una vez. La respuesta es `201` si el contacto es nuevo y `200` si se actualizó.
 
 ### Servicios de desarrollo
 
@@ -60,16 +81,16 @@ En redes con inspección TLS, como la red corporativa de Multicómputos, coloca 
 
 ## Scripts
 
-| Script                                                    | Uso                                                   |
-| --------------------------------------------------------- | ----------------------------------------------------- |
-| `pnpm setup`                                              | Puesta en marcha completa del entorno de desarrollo   |
-| `pnpm dev` / `pnpm dev:worker`                            | App y worker en modo desarrollo                       |
-| `pnpm build`                                              | Cliente Prisma, build de Next.js y bundle del worker  |
-| `pnpm start` / `pnpm start:worker`                        | Ejecutar el build de producción                       |
-| `pnpm db:migrate` / `db:deploy` / `db:seed` / `db:studio` | Base de datos                                         |
-| `pnpm typecheck` / `pnpm lint` / `pnpm format`            | Calidad de código                                     |
-| `pnpm test` / `test:int` / `test:coverage`                | Tests unitarios, de integración y cobertura           |
-| `pnpm audit`                                              | Auditoría de dependencias (falla con High o Critical) |
+| Script                                                    | Uso                                                                     |
+| --------------------------------------------------------- | ----------------------------------------------------------------------- |
+| `pnpm setup`                                              | Puesta en marcha completa del entorno de desarrollo                     |
+| `pnpm dev` / `pnpm dev:worker`                            | App y worker en modo desarrollo                                         |
+| `pnpm build`                                              | Cliente Prisma, build de Next.js y bundle del worker                    |
+| `pnpm start` / `pnpm start:worker`                        | Ejecutar el build de producción                                         |
+| `pnpm db:migrate` / `db:deploy` / `db:seed` / `db:studio` | Base de datos                                                           |
+| `pnpm typecheck` / `pnpm lint` / `pnpm format`            | Calidad de código                                                       |
+| `pnpm test` / `test:int` / `test:coverage`                | Tests unitarios, de integración (requieren `postgres-test`) y cobertura |
+| `pnpm audit`                                              | Auditoría de dependencias (falla con High o Critical)                   |
 
 ## Estructura
 
@@ -95,7 +116,7 @@ src/
 | Fase | Alcance                                                                                           | Estado     |
 | ---- | ------------------------------------------------------------------------------------------------- | ---------- |
 | 0    | Andamiaje, Docker, Prisma, observabilidad, tema de marca, i18n, worker                            | Completada |
-| 1    | Núcleo multi-tenant, autenticación (Entra ID y credenciales), RBAC, contactos, listas y segmentos | Pendiente  |
+| 1    | Núcleo multi-tenant, autenticación (Entra ID y credenciales), RBAC, contactos, listas y segmentos | Completada |
 | 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Pendiente  |
 | 3    | Campañas, envío multi-proveedor (SMTP, Graph, Resend, SES), tracking y bajas                      | Pendiente  |
 | 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Pendiente  |

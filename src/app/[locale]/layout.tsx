@@ -9,6 +9,7 @@ import { headers } from 'next/headers';
 import { notFound } from 'next/navigation';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
+import { NotificationsProvider } from '@/common/hooks/notifications';
 import { routing } from '@/common/i18n/routing';
 import { AppThemeProvider } from '@/common/theme/app-theme-provider';
 import '@/common/global/globals.css';
@@ -58,7 +59,9 @@ export default async function LocaleLayout({ children, params }: LayoutProps<'/[
       <body className="min-h-screen antialiased">
         <InitColorSchemeScript attribute="class" defaultMode="system" nonce={nonce} />
         <AppThemeProvider nonce={nonce}>
-          <NextIntlClientProvider>{children}</NextIntlClientProvider>
+          <NextIntlClientProvider>
+            <NotificationsProvider>{children}</NotificationsProvider>
+          </NextIntlClientProvider>
         </AppThemeProvider>
       </body>
     </html>

@@ -6,6 +6,7 @@ import type { Instrumentation } from 'next';
 import { TRACE_ID_HEADER } from '@/common/utils/trace-id';
 
 const isBuildPhase = () => process.env.NEXT_PHASE === 'phase-production-build';
+const CLIENT_ABORT_MESSAGE = 'The destination stream closed early.';
 
 export async function register() {
   if (process.env.NEXT_RUNTIME !== 'nodejs' || isBuildPhase()) {
@@ -23,7 +24,10 @@ export const onRequestError: Instrumentation.onRequestError = async (error, requ
   }
   const { getLogger } = await import('@/infrastructure/container');
   const traceHeader = request.headers[TRACE_ID_HEADER];
-  getLogger().error(
+  const logger = getLogger();
+  // El cliente cerró la conexión (navegación cancelada o prefetch abortado): no es un fallo del servidor.
+  const clientAborted = error instanceof Error && error.message === CLIENT_ABORT_MESSAGE;
+  (clientAborted ? logger.debug.bind(logger) : logger.error.bind(logger))(
     {
       err: error,
       method: request.method,

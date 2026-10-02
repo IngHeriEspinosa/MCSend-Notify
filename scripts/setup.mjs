@@ -3,6 +3,7 @@
  *
  * 1. Comprueba Node.js, pnpm y Docker Compose.
  * 2. Crea `.env` a partir de `.env.example` generando secretos aleatorios (nunca los imprime).
+ *    Si `.env` ya existe, añade solo las variables nuevas de `.env.example`.
  * 3. Levanta la infraestructura en Docker y espera a que esté sana.
  * 4. Aplica las migraciones y carga los datos iniciales.
  *
@@ -15,6 +16,8 @@ import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 const INFRA_SERVICES = ['postgres', 'redis', 'storage', 'gotenberg', 'mailpit'];
 const MIN_NODE_MAJOR = 24;
 const MIN_PNPM_MAJOR = 11;
+const LINE_BREAK = /\r?\n/;
+const ENV_KEY = /^([A-Z0-9_]+)=/;
 
 /** Marcadores de .env.example y cómo generar su valor. */
 const SECRET_GENERATORS = {
@@ -24,6 +27,7 @@ const SECRET_GENERATORS = {
   __AUTH_SECRET__: () => randomBytes(32).toString('base64url'),
   __ENCRYPTION_KEY__: () => randomBytes(32).toString('base64'),
   __TRACKING_SIGNING_SECRET__: () => randomBytes(32).toString('base64url'),
+  __SEED_ADMIN_PASSWORD__: () => randomBytes(18).toString('base64url'),
 };
 
 const isWindows = process.platform === 'win32';
@@ -67,27 +71,47 @@ function checkPrerequisites() {
   console.log(`  Node ${process.version} · pnpm ${pnpmVersion} · Docker Compose disponible`);
 }
 
+function fillSecrets(content) {
+  let result = content;
+  for (const [token, generate] of Object.entries(SECRET_GENERATORS)) {
+    if (result.includes(token)) result = result.replaceAll(token, generate());
+  }
+  return result;
+}
+
+function keyOf(line) {
+  return ENV_KEY.exec(line)?.[1];
+}
+
 function ensureEnvFile() {
   step('Preparando el archivo .env');
-  if (existsSync('.env')) {
-    const pending = Object.keys(SECRET_GENERATORS).filter((token) =>
-      readFileSync('.env', 'utf8').includes(token),
-    );
-    if (pending.length > 0) {
-      fail(
-        `.env contiene marcadores sin sustituir: ${pending.join(', ')}. Corrígelos o borra .env.`,
-      );
-    }
-    console.log('  .env ya existe; se conserva sin cambios.');
+  const example = readFileSync('.env.example', 'utf8');
+  if (!existsSync('.env')) {
+    writeFileSync('.env', fillSecrets(example), { encoding: 'utf8', mode: 0o600 });
+    console.log('  .env creado con secretos aleatorios (no se muestran).');
     return;
   }
-  let content = readFileSync('.env.example', 'utf8');
-  for (const [token, generate] of Object.entries(SECRET_GENERATORS)) {
-    const value = generate();
-    content = content.replaceAll(token, value);
+
+  const current = readFileSync('.env', 'utf8');
+  const pending = Object.keys(SECRET_GENERATORS).filter((token) => current.includes(token));
+  if (pending.length > 0) {
+    fail(`.env contiene marcadores sin sustituir: ${pending.join(', ')}. Corrígelos o borra .env.`);
   }
-  writeFileSync('.env', content, { encoding: 'utf8', mode: 0o600 });
-  console.log('  .env creado con secretos aleatorios (no se muestran).');
+
+  // Migración: añade las variables nuevas de .env.example que aún no existen en .env.
+  const existing = new Set(current.split(LINE_BREAK).map(keyOf).filter(Boolean));
+  const missingLines = example.split(LINE_BREAK).filter((line) => {
+    const key = keyOf(line);
+    return key !== undefined && !existing.has(key);
+  });
+  if (missingLines.length === 0) {
+    console.log('  .env ya existe y está completo; se conserva sin cambios.');
+    return;
+  }
+  const addition = fillSecrets(missingLines.join('\n'));
+  writeFileSync('.env', `${current.trimEnd()}\n\n# Añadidas por pnpm setup\n${addition}\n`, 'utf8');
+  const names = missingLines.map(keyOf).join(', ');
+  console.log(`  Variables añadidas a .env: ${names} (valores no mostrados).`);
 }
 
 function startInfrastructure() {
@@ -110,6 +134,7 @@ prepareDatabase();
 console.log(`
 ✔ Entorno listo.
 
+  Acceso inicial:    SEED_ADMIN_EMAIL y SEED_ADMIN_PASSWORD de tu archivo .env
   Inicia la app:     pnpm dev          → http://localhost:3020
   Inicia el worker:  pnpm dev:worker   → http://localhost:9464/health
   Correos de prueba: Mailpit           → http://localhost:8025

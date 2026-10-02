@@ -1,6 +1,8 @@
-// Esquema de datos de MC Send Notify — Ing. Heri Espinosa
+// Esquema de datos de MC Send Notify. Autor: Ing. Heri Espinosa
 // Convenciones: ids UUIDv7, timestamps en todas las tablas, tenantId en toda tabla de negocio,
 // nombres de tabla y columna en snake_case mediante @@map/@map.
+// Toda tabla con `tenantId` debe figurar en src/infrastructure/persistence/prisma/tenant-models.ts
+// (lo verifica tests/integration/tenant-models.int.test.ts).
 
 generator client {
   provider     = "prisma-client"
@@ -11,6 +13,10 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+// ============================================================================
+// Enums
+// ============================================================================
 
 enum PlatformRole {
   SUPER_ADMIN
@@ -28,6 +34,47 @@ enum TenantStatus {
   ACTIVE
   SUSPENDED
 }
+
+enum ContactStatus {
+  ACTIVE
+  UNSUBSCRIBED
+  BOUNCED
+  COMPLAINED
+  INVALID
+}
+
+enum FieldType {
+  STRING
+  NUMBER
+  DATE
+  BOOLEAN
+  SELECT
+}
+
+enum SuppressionReason {
+  UNSUBSCRIBE
+  HARD_BOUNCE
+  COMPLAINT
+  MANUAL
+  INVALID
+}
+
+enum ImportStatus {
+  UPLOADED
+  QUEUED
+  PROCESSING
+  COMPLETED
+  FAILED
+}
+
+enum DuplicatePolicy {
+  UPDATE
+  SKIP
+}
+
+// ============================================================================
+// Plataforma e identidad
+// ============================================================================
 
 /// Cada aplicación o producto de Multicómputos (MCSupport, MCLog...) es un tenant aislado.
 model Tenant {
@@ -48,7 +95,17 @@ model Tenant {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  memberships TenantMembership[]
+  memberships   TenantMembership[]
+  invitations   Invitation[]
+  apiKeys       ApiKey[]
+  contacts      Contact[]
+  contactFields ContactField[]
+  contactLists  ContactList[]
+  tags          Tag[]
+  segments      Segment[]
+  topics        Topic[]
+  suppressions  Suppression[]
+  imports       ContactImport[]
 
   @@map("tenants")
 }
@@ -140,4 +197,291 @@ model TenantMembership {
   @@unique([tenantId, userId])
   @@index([userId])
   @@map("tenant_memberships")
+}
+
+/// Invitación a un tenant. Solo se guarda el hash del token; el enlace se muestra una vez.
+model Invitation {
+  id          String         @id @default(uuid(7)) @db.Uuid
+  tenantId    String         @map("tenant_id") @db.Uuid
+  email       String
+  role        MembershipRole
+  tokenHash   String         @unique @map("token_hash")
+  expiresAt   DateTime       @map("expires_at")
+  invitedById String         @map("invited_by_id") @db.Uuid
+  acceptedAt  DateTime?      @map("accepted_at")
+  revokedAt   DateTime?      @map("revoked_at")
+  createdAt   DateTime       @default(now()) @map("created_at")
+  updatedAt   DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, email])
+  @@map("invitations")
+}
+
+/// Clave de API por tenant (`mcsn_{prefix}_{secreto}`). Solo se guarda el SHA-256 del secreto.
+model ApiKey {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  name        String
+  prefix      String    @unique
+  keyHash     String    @unique @map("key_hash")
+  scopes      String[]
+  lastUsedAt  DateTime? @map("last_used_at")
+  expiresAt   DateTime? @map("expires_at")
+  revokedAt   DateTime? @map("revoked_at")
+  createdById String    @map("created_by_id") @db.Uuid
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId])
+  @@map("api_keys")
+}
+
+/// Registro de auditoría inmutable (un trigger impide UPDATE y DELETE).
+/// Sin claves foráneas: debe sobrevivir a la eliminación de las entidades que registra.
+model AuditLog {
+  id            String   @id @default(uuid(7)) @db.Uuid
+  tenantId      String?  @map("tenant_id") @db.Uuid
+  actorUserId   String?  @map("actor_user_id") @db.Uuid
+  actorApiKeyId String?  @map("actor_api_key_id") @db.Uuid
+  action        String
+  entityType    String   @map("entity_type")
+  entityId      String?  @map("entity_id")
+  metadata      Json     @default("{}")
+  ip            String?
+  userAgent     String?  @map("user_agent")
+  createdAt     DateTime @default(now()) @map("created_at")
+
+  @@index([tenantId, createdAt])
+  @@index([entityType, entityId])
+  @@map("audit_logs")
+}
+
+// ============================================================================
+// Contactos y audiencias
+// ============================================================================
+
+model Contact {
+  id              String        @id @default(uuid(7)) @db.Uuid
+  tenantId        String        @map("tenant_id") @db.Uuid
+  email           String
+  /// Email en minúsculas y sin espacios: clave de deduplicación por tenant.
+  emailNormalized String        @map("email_normalized")
+  firstName       String?       @map("first_name")
+  lastName        String?       @map("last_name")
+  company         String?
+  locale          String?
+  timezone        String?
+  /// Valores de los campos personalizados (ContactField.key → valor).
+  attributes      Json          @default("{}")
+  status          ContactStatus @default(ACTIVE)
+  /// Origen del alta: manual | import | api.
+  source          String        @default("manual")
+  consentAt       DateTime?     @map("consent_at")
+  consentSource   String?       @map("consent_source")
+  externalId      String?       @map("external_id")
+  lastEngagedAt   DateTime?     @map("last_engaged_at")
+  createdAt       DateTime      @default(now()) @map("created_at")
+  updatedAt       DateTime      @updatedAt @map("updated_at")
+
+  tenant             Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  listMemberships    ListMembership[]
+  tags               ContactTag[]
+  topicSubscriptions ContactTopicSubscription[]
+
+  @@unique([tenantId, emailNormalized])
+  @@unique([tenantId, externalId])
+  @@index([tenantId, status])
+  @@index([tenantId, createdAt])
+  @@index([attributes], type: Gin)
+  @@map("contacts")
+}
+
+/// Definición de un campo personalizado de contacto.
+model ContactField {
+  id        String    @id @default(uuid(7)) @db.Uuid
+  tenantId  String    @map("tenant_id") @db.Uuid
+  key       String
+  label     String
+  type      FieldType
+  /// Opciones permitidas para el tipo SELECT.
+  options   Json      @default("[]")
+  createdAt DateTime  @default(now()) @map("created_at")
+  updatedAt DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, key])
+  @@map("contact_fields")
+}
+
+model ContactList {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  name        String
+  description String?
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant      Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  memberships ListMembership[]
+  imports     ContactImport[]
+
+  @@unique([tenantId, name])
+  @@map("contact_lists")
+}
+
+model ListMembership {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  listId    String   @map("list_id") @db.Uuid
+  contactId String   @map("contact_id") @db.Uuid
+  source    String   @default("manual")
+  addedAt   DateTime @default(now()) @map("added_at")
+
+  list    ContactList @relation(fields: [listId], references: [id], onDelete: Cascade)
+  contact Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+
+  @@id([listId, contactId])
+  @@index([tenantId, contactId])
+  @@map("list_memberships")
+}
+
+model Tag {
+  id        String   @id @default(uuid(7)) @db.Uuid
+  tenantId  String   @map("tenant_id") @db.Uuid
+  name      String
+  color     String?
+  createdAt DateTime @default(now()) @map("created_at")
+  updatedAt DateTime @updatedAt @map("updated_at")
+
+  tenant   Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  contacts ContactTag[]
+
+  @@unique([tenantId, name])
+  @@map("tags")
+}
+
+model ContactTag {
+  tenantId  String   @map("tenant_id") @db.Uuid
+  contactId String   @map("contact_id") @db.Uuid
+  tagId     String   @map("tag_id") @db.Uuid
+  createdAt DateTime @default(now()) @map("created_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  tag     Tag     @relation(fields: [tagId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, tagId])
+  @@index([tenantId, tagId])
+  @@map("contact_tags")
+}
+
+/// Segmento dinámico: reglas (SegmentRuleSet validado con Zod) evaluadas en cada uso.
+model Segment {
+  id            String    @id @default(uuid(7)) @db.Uuid
+  tenantId      String    @map("tenant_id") @db.Uuid
+  name          String
+  description   String?
+  rules         Json
+  /// Consulta en lenguaje natural que originó las reglas (Fase 4).
+  nlQuery       String?   @map("nl_query")
+  lastCount     Int?      @map("last_count")
+  lastCountedAt DateTime? @map("last_counted_at")
+  createdAt     DateTime  @default(now()) @map("created_at")
+  updatedAt     DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, name])
+  @@map("segments")
+}
+
+/// Tema de suscripción (p. ej. "Actualizaciones de producto", "Resumen semanal").
+model Topic {
+  id          String   @id @default(uuid(7)) @db.Uuid
+  tenantId    String   @map("tenant_id") @db.Uuid
+  key         String
+  /// Nombre por idioma: { es, en }.
+  name        Json
+  /// Descripción por idioma: { es, en }.
+  description Json     @default("{}")
+  /// Los contactos nuevos quedan suscritos por defecto.
+  isDefault   Boolean  @default(true) @map("is_default")
+  createdAt   DateTime @default(now()) @map("created_at")
+  updatedAt   DateTime @updatedAt @map("updated_at")
+
+  tenant        Tenant                     @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  subscriptions ContactTopicSubscription[]
+
+  @@unique([tenantId, key])
+  @@map("topics")
+}
+
+model ContactTopicSubscription {
+  tenantId   String   @map("tenant_id") @db.Uuid
+  contactId  String   @map("contact_id") @db.Uuid
+  topicId    String   @map("topic_id") @db.Uuid
+  subscribed Boolean
+  updatedAt  DateTime @updatedAt @map("updated_at")
+
+  contact Contact @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  topic   Topic   @relation(fields: [topicId], references: [id], onDelete: Cascade)
+
+  @@id([contactId, topicId])
+  @@index([tenantId, topicId])
+  @@map("contact_topic_subscriptions")
+}
+
+/// Direcciones que nunca deben recibir envíos del tenant (bajas, rebotes, quejas).
+model Suppression {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  emailNormalized String            @map("email_normalized")
+  reason          SuppressionReason
+  /// Origen: manual | import | unsubscribe | provider.
+  source          String
+  note            String?
+  createdAt       DateTime          @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, emailNormalized])
+  @@map("suppressions")
+}
+
+/// Importación de contactos desde CSV o XLSX, procesada por el worker.
+model ContactImport {
+  id              String          @id @default(uuid(7)) @db.Uuid
+  tenantId        String          @map("tenant_id") @db.Uuid
+  fileName        String          @map("file_name")
+  fileType        String          @map("file_type")
+  storageKey      String          @map("storage_key")
+  status          ImportStatus    @default(UPLOADED)
+  headers         Json            @default("[]")
+  previewRows     Json            @default("[]") @map("preview_rows")
+  /// columna del archivo → campo de contacto (email, firstName, attributes.<key>...).
+  mapping         Json?
+  duplicatePolicy DuplicatePolicy @default(UPDATE) @map("duplicate_policy")
+  listId          String?         @map("list_id") @db.Uuid
+  consentSource   String?         @map("consent_source")
+  totalRows       Int             @default(0) @map("total_rows")
+  createdCount    Int             @default(0) @map("created_count")
+  updatedCount    Int             @default(0) @map("updated_count")
+  skippedCount    Int             @default(0) @map("skipped_count")
+  invalidCount    Int             @default(0) @map("invalid_count")
+  errorReportKey  String?         @map("error_report_key")
+  error           String?
+  createdById     String          @map("created_by_id") @db.Uuid
+  startedAt       DateTime?       @map("started_at")
+  finishedAt      DateTime?       @map("finished_at")
+  createdAt       DateTime        @default(now()) @map("created_at")
+  updatedAt       DateTime        @updatedAt @map("updated_at")
+
+  tenant Tenant       @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  list   ContactList? @relation(fields: [listId], references: [id], onDelete: SetNull)
+
+  @@index([tenantId, createdAt])
+  @@map("contact_imports")
 }

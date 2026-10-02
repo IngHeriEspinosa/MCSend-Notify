@@ -5,7 +5,7 @@
  */
 import { createRequire } from 'node:module';
 import { describe, expect, it } from 'vitest';
-import { config } from './proxy';
+import { config, loginRedirectFor } from './proxy';
 
 interface CompiledMatcher {
   regexp: string;
@@ -39,5 +39,23 @@ describe('matcher del proxy', () => {
     '/icon.png',
   ])('no se ejecuta en %s', (pathname) => {
     expect(proxyRunsOn(pathname)).toBe(false);
+  });
+});
+
+describe('loginRedirectFor', () => {
+  it('redirige las secciones privadas sin sesión conservando el destino', () => {
+    expect(loginRedirectFor('/es/t/mcsupport/contacts', false)).toBe(
+      '/es/login?callbackUrl=%2Fes%2Ft%2Fmcsupport%2Fcontacts',
+    );
+    expect(loginRedirectFor('/en/select-tenant', false)).toBe(
+      '/en/login?callbackUrl=%2Fen%2Fselect-tenant',
+    );
+  });
+
+  it('no redirige páginas públicas ni peticiones con sesión', () => {
+    expect(loginRedirectFor('/es', false)).toBeNull();
+    expect(loginRedirectFor('/es/login', false)).toBeNull();
+    expect(loginRedirectFor('/es/invite/abc', false)).toBeNull();
+    expect(loginRedirectFor('/es/t/mcsupport', true)).toBeNull();
   });
 });

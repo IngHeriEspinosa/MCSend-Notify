@@ -3,20 +3,46 @@
  * Comparte `src/core` e `src/infrastructure` con la app; se ejecuta en su propio contenedor.
  * Autor: Ing. Heri Espinosa
  */
-import { Queue, Worker } from 'bullmq';
+import { Queue, Worker, type Processor } from 'bullmq';
+import type { Redis } from 'ioredis';
 import type { Server } from 'node:http';
 import { getServerEnv } from '@/common/config/env';
 import {
   configureContainer,
   getLogger,
+  getObjectStorage,
   getWorkerHeartbeat,
   shutdownContainer,
 } from '@/infrastructure/container';
+import type { Logger } from '@/infrastructure/observability/logger';
 import { createRedisConnection } from '@/infrastructure/queue/connection';
-import { QUEUE_NAMES } from '@/infrastructure/queue/queue-names';
+import { QUEUE_NAMES, type QueueName } from '@/infrastructure/queue/queue-names';
+import { useCases } from '@/infrastructure/use-case-factory';
 import { startHealthServer } from './health-server';
+import { createContactImportProcessor } from './processors/contact-import.processor';
 import { createMaintenanceProcessor } from './processors/maintenance.processor';
 import { registerMaintenanceSchedulers } from './schedulers';
+
+function startWorker(
+  name: QueueName,
+  processor: Processor,
+  options: { connection: Redis; concurrency: number; logger: Logger },
+): Worker {
+  const worker = new Worker(name, processor, {
+    connection: options.connection,
+    concurrency: options.concurrency,
+  });
+  worker.on('failed', (job, error) =>
+    options.logger.error(
+      { err: error, queue: name, jobName: job?.name, attemptsMade: job?.attemptsMade },
+      'Job fallido',
+    ),
+  );
+  worker.on('error', (error) =>
+    options.logger.error({ err: error, queue: name }, 'Error del worker'),
+  );
+  return worker;
+}
 
 async function main(): Promise<void> {
   const env = getServerEnv();
@@ -24,26 +50,30 @@ async function main(): Promise<void> {
   const logger = getLogger();
   const connection = createRedisConnection(env.REDIS_URL, 'worker');
 
+  await getObjectStorage().ensureBucket();
+
   const maintenanceQueue = new Queue(QUEUE_NAMES.maintenance, { connection });
-  const maintenanceWorker = new Worker(
-    QUEUE_NAMES.maintenance,
-    createMaintenanceProcessor(getWorkerHeartbeat()),
-    { connection, concurrency: 1 },
-  );
-  maintenanceWorker.on('failed', (job, error) =>
-    logger.error({ err: error, queue: QUEUE_NAMES.maintenance, jobName: job?.name }, 'Job fallido'),
-  );
-  maintenanceWorker.on('error', (error) => logger.error({ err: error }, 'Error del worker'));
+  const workers = [
+    startWorker(QUEUE_NAMES.maintenance, createMaintenanceProcessor(getWorkerHeartbeat()), {
+      connection,
+      concurrency: 1,
+      logger,
+    }),
+    startWorker(
+      QUEUE_NAMES.contactImport,
+      createContactImportProcessor({ processImport: useCases.processImport() }),
+      { connection, concurrency: 2, logger },
+    ),
+  ];
 
   await registerMaintenanceSchedulers(maintenanceQueue);
 
-  const workers = [maintenanceWorker];
   const healthServer: Server = await startHealthServer(env.WORKER_HEALTH_PORT, () => ({
     redis: connection.status === 'ready',
     workers: Object.fromEntries(workers.map((worker) => [worker.name, worker.isRunning()])),
   }));
   logger.info(
-    { port: env.WORKER_HEALTH_PORT, queues: workers.map((w) => w.name) },
+    { port: env.WORKER_HEALTH_PORT, queues: workers.map((worker) => worker.name) },
     'Worker iniciado',
   );
 
