@@ -18,6 +18,8 @@ export const RATE_LIMITS = {
   upload: { keyPrefix: 'rl:upload', points: 20, durationSeconds: 60 * 60 },
   documentUpload: { keyPrefix: 'rl:docs', points: 60, durationSeconds: 60 * 60 },
   invitation: { keyPrefix: 'rl:invite', points: 20, durationSeconds: 60 * 60 },
+  testSend: { keyPrefix: 'rl:test', points: 20, durationSeconds: 60 * 60 },
+  passwordReset: { keyPrefix: 'rl:reset', points: 5, durationSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export class RateLimiter {

@@ -11,7 +11,10 @@ import { inviteMemberSchema } from '@/core/identity/use-cases/invite-member.use-
 import { changeMemberRoleSchema } from '@/core/identity/use-cases/manage-members.use-case';
 import { actorUserId } from '@/core/shared/tenant-context';
 import { createTenantSchema, updateTenantSettingsSchema } from '@/core/tenants/tenant';
-import { getRateLimiter } from '@/infrastructure/container';
+import { getLogger, getRateLimiter, getSystemMailQueue } from '@/infrastructure/container';
+import { getServerEnv } from '@/common/config/env';
+import { getLocale } from 'next-intl/server';
+import { getOptionalUser } from '@/app/_server/session';
 import { useCases } from '@/infrastructure/use-case-factory';
 
 const idSchema = z.object({ id: z.uuid() });
@@ -28,7 +31,29 @@ export const updateTenantSettingsAction = tenantAction(
 export const inviteMemberAction = tenantAction(inviteMemberSchema, async (input, context) => {
   await getRateLimiter('invitation').consume(actorUserId(context) ?? context.tenantId);
   const result = await useCases.inviteMember().execute(context, input);
-  return { token: result.token, expiresAt: result.expiresAt };
+  // El enlace se muestra siempre; además se envía por correo (si falla, no se pierde la invitación).
+  let emailed = false;
+  try {
+    const [locale, inviter, profile] = await Promise.all([
+      getLocale(),
+      getOptionalUser(),
+      useCases.branding().get(context),
+    ]);
+    const mailLocale = locale === 'en' ? 'en' : 'es';
+    await getSystemMailQueue().enqueue({
+      kind: 'invitation',
+      to: input.email,
+      locale: mailLocale,
+      tenantName: profile.name,
+      inviterName: inviter?.name ?? inviter?.email ?? null,
+      url: new URL(`/${mailLocale}/invite/${result.token}`, getServerEnv().APP_URL).toString(),
+      expiresAt: result.expiresAt,
+    });
+    emailed = true;
+  } catch (error) {
+    getLogger().warn({ err: error }, 'No se pudo encolar el correo de invitación');
+  }
+  return { token: result.token, expiresAt: result.expiresAt, emailed };
 });
 
 export const changeMemberRoleAction = tenantAction(changeMemberRoleSchema, (input, context) =>

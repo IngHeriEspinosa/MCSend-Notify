@@ -5,7 +5,10 @@
 import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
+import type { CampaignQueue } from '@/core/campaigns/ports';
+import type { ProviderEventQueue } from '@/core/campaigns/use-cases/provider-events.use-cases';
 import type { ContactImportQueue } from '@/core/contacts/ports';
+import type { SystemMailMessage, SystemMailQueue } from '@/core/identity/system-mail';
 import type { DocumentQueue } from '@/core/documents/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
 import { currentTraceId } from '../observability/trace-context';
@@ -88,5 +91,132 @@ export class BullDocumentQueue implements DocumentQueue {
 
   close(): Promise<void> {
     return this.queue.close();
+  }
+}
+
+// ----------------------------------------------------------------------------
+// Campañas: despacho y envío
+// ----------------------------------------------------------------------------
+
+export const campaignDispatchJobSchema = z.object({
+  tenantId: z.uuid(),
+  tenantSlug: z.string(),
+  campaignId: z.uuid(),
+  version: z.number().int().min(1),
+  traceId: z.string().optional(),
+});
+export type CampaignDispatchJob = z.infer<typeof campaignDispatchJobSchema>;
+
+export const emailSendJobSchema = z.object({
+  tenantId: z.uuid(),
+  tenantSlug: z.string(),
+  deliveryId: z.uuid(),
+});
+export type EmailSendJob = z.infer<typeof emailSendJobSchema>;
+
+/** Reintentos de un envío transitorio: 30 s, 1, 2, 4, 8 y 16 min (backoff exponencial). */
+export const EMAIL_SEND_ATTEMPTS = 6;
+
+export class BullCampaignQueue implements CampaignQueue {
+  private readonly dispatch: Queue<CampaignDispatchJob>;
+  private readonly send: Queue<EmailSendJob>;
+
+  constructor(connection: Redis) {
+    this.dispatch = new Queue<CampaignDispatchJob>(QUEUE_NAMES.campaignDispatch, { connection });
+    this.send = new Queue<EmailSendJob>(QUEUE_NAMES.emailSend, { connection });
+  }
+
+  async enqueueDispatch(
+    context: TenantContext,
+    campaignId: string,
+    version: number,
+    delayMs: number,
+  ) {
+    await this.dispatch.add(
+      'dispatch',
+      {
+        tenantId: context.tenantId,
+        tenantSlug: context.tenantSlug,
+        campaignId,
+        version,
+        traceId: currentTraceId(),
+      },
+      {
+        // Idempotente por versión: reprogramar crea otra versión y el job anterior queda obsoleto.
+        jobId: ['dispatch', campaignId, String(version)].join('-'),
+        delay: delayMs,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 10_000 },
+        removeOnComplete: true,
+        removeOnFail: 200,
+      },
+    );
+  }
+
+  async enqueueSends(context: TenantContext, deliveryIds: readonly string[]) {
+    if (deliveryIds.length === 0) return;
+    await this.send.addBulk(
+      deliveryIds.map((deliveryId) => ({
+        name: 'send',
+        data: { tenantId: context.tenantId, tenantSlug: context.tenantSlug, deliveryId },
+        opts: {
+          // Un job por entrega: reencolar (reanudar, recuperar) nunca duplica un job vivo.
+          jobId: 'delivery-' + deliveryId,
+          attempts: EMAIL_SEND_ATTEMPTS,
+          backoff: { type: 'exponential', delay: 30_000 },
+          removeOnComplete: true,
+          removeOnFail: 1000,
+        },
+      })),
+    );
+  }
+
+  async close(): Promise<void> {
+    await Promise.all([this.dispatch.close(), this.send.close()]);
+  }
+}
+
+export const providerEventJobSchema = z.object({
+  tenantId: z.uuid(),
+  eventId: z.uuid(),
+});
+export type ProviderEventJob = z.infer<typeof providerEventJobSchema>;
+
+export class BullProviderEventQueue implements ProviderEventQueue {
+  private readonly queue: Queue<ProviderEventJob>;
+
+  constructor(connection: Redis) {
+    this.queue = new Queue<ProviderEventJob>(QUEUE_NAMES.providerEvents, { connection });
+  }
+
+  async enqueue(context: TenantContext, eventId: string) {
+    await this.queue.add(
+      'apply',
+      { tenantId: context.tenantId, eventId },
+      {
+        jobId: 'event-' + eventId,
+        attempts: 5,
+        backoff: { type: 'exponential', delay: 5000 },
+        removeOnComplete: true,
+        removeOnFail: 500,
+      },
+    );
+  }
+}
+
+export class BullSystemMailQueue implements SystemMailQueue {
+  private readonly queue: Queue<SystemMailMessage>;
+
+  constructor(connection: Redis) {
+    this.queue = new Queue<SystemMailMessage>(QUEUE_NAMES.systemMail, { connection });
+  }
+
+  async enqueue(message: SystemMailMessage) {
+    await this.queue.add('send', message, {
+      attempts: 5,
+      backoff: { type: 'exponential', delay: 15_000 },
+      removeOnComplete: true,
+      removeOnFail: 200,
+    });
   }
 }

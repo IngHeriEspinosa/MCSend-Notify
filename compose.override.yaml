@@ -59,6 +59,7 @@ services:
     environment:
       APP_ENV: development
       SYSTEM_MAIL_SMTP_URL: smtp://mailpit:1025
+      SSRF_ALLOW_PRIVATE: 'true'
 
   worker:
     ports:
@@ -66,3 +67,4 @@ services:
     environment:
       APP_ENV: development
       SYSTEM_MAIL_SMTP_URL: smtp://mailpit:1025
+      SSRF_ALLOW_PRIVATE: 'true'

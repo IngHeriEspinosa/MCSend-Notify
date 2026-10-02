@@ -14,14 +14,9 @@ import { DomainError } from '@/core/shared/domain-error';
 import type { Clock } from '@/core/shared/ports';
 import { actorUserId, type TenantContext } from '@/core/shared/tenant-context';
 import type { BrandingRepository } from '@/core/tenants/branding';
-import { referencedDocumentIds, templateBodySchema, type TemplateBody } from '../email-content';
-import type {
-  DocumentAsset,
-  EmailCompiler,
-  EmailSender,
-  TemplateRecord,
-  TemplateRepository,
-} from '../ports';
+import { templateBodySchema } from '../email-content';
+import { EmailComposer, hasLiquidSyntaxError } from '../email-composer';
+import type { EmailCompiler, TemplateRecord, TemplateRepository } from '../ports';
 import {
   buildRecipientVariables,
   SAMPLE_RECIPIENT,
@@ -60,7 +55,7 @@ export const previewTemplateSchema = z.object({
 });
 
 /** En la vista previa los enlaces de baja no deben ejecutar nada: apuntan a un ancla inocua. */
-const PREVIEW_LINKS = { unsubscribeUrl: '#unsubscribe', preferencesUrl: '#preferences' };
+export const PREVIEW_LINKS = { unsubscribeUrl: '#unsubscribe', preferencesUrl: '#preferences' };
 
 export interface TemplateUseCaseDeps {
   templates: TemplateRepository;
@@ -199,32 +194,20 @@ export class ManageTemplatesUseCase {
 
 /** Compila el correo con el branding del tenant y lo personaliza para un destinatario. */
 export class PreviewTemplateUseCase {
-  constructor(private readonly deps: TemplateUseCaseDeps) {}
+  private readonly composer: EmailComposer;
+
+  constructor(private readonly deps: TemplateUseCaseDeps) {
+    this.composer = new EmailComposer(deps);
+  }
 
   async execute(context: TenantContext, input: z.infer<typeof previewTemplateSchema>) {
     assertCan(context, 'template:read');
-    const [profile, fields, recipient] = await Promise.all([
-      this.deps.branding.getEmailProfile(context),
-      this.deps.fields.list(context),
+    const [{ prepared, tenantName }, recipient] = await Promise.all([
+      this.composer.prepare(context, input.body, { forceColorScheme: input.colorScheme }),
       this.recipient(context, input.contactId),
     ]);
-    const sender: EmailSender = {
-      tenantName: profile.name,
-      postalAddress: profile.postalAddress,
-      branding: profile.branding,
-      logoUrl: profile.branding.logoKey
-        ? this.deps.assets.tenantLogo(context.tenantId, profile.branding.logoKey)
-        : null,
-    };
-    const prepared = await this.deps.compiler.prepare({
-      body: input.body,
-      sender,
-      documents: await this.documentAssets(context, input.body),
-      fieldKeys: new Set(fields.map((field) => field.key)),
-      forceColorScheme: input.colorScheme,
-    });
     // Con errores de sintaxis Liquid no se puede personalizar: se muestra el correo sin variables.
-    if (prepared.issues.some((issue) => issue.code === 'LIQUID_SYNTAX')) {
+    if (hasLiquidSyntaxError(prepared)) {
       return {
         subject: prepared.subject,
         html: prepared.html,
@@ -237,7 +220,7 @@ export class PreviewTemplateUseCase {
       prepared,
       buildRecipientVariables({
         recipient,
-        tenantName: profile.name,
+        tenantName,
         links: PREVIEW_LINKS,
         now: this.deps.clock.now(),
       }),
@@ -254,33 +237,5 @@ export class PreviewTemplateUseCase {
     const contact = await this.deps.contacts.findById(context, contactId);
     if (!contact) throw new DomainError('NOT_FOUND', 'Contacto inexistente');
     return contact;
-  }
-
-  private async documentAssets(
-    context: TenantContext,
-    body: TemplateBody,
-  ): Promise<Map<string, DocumentAsset>> {
-    const ids = referencedDocumentIds(body);
-    if (ids.length === 0) return new Map();
-    const documents = await this.deps.documents.findManyByIds(context, ids);
-    return new Map(
-      documents.map((document) => [
-        document.id,
-        {
-          id: document.id,
-          title: document.title,
-          kind: document.kind,
-          status: document.status,
-          pageCount: document.pageCount,
-          sizeBytes: document.sizeBytes,
-          thumbnailUrl: document.thumbnailKey
-            ? this.deps.assets.documentThumbnail(context.tenantId, document.id)
-            : null,
-          thumbnailWidth: document.thumbnailWidth,
-          thumbnailHeight: document.thumbnailHeight,
-          downloadUrl: this.deps.assets.documentDownload(context.tenantId, document.id),
-        },
-      ]),
-    );
   }
 }

@@ -18,6 +18,12 @@ export function useActionErrorMessage() {
       if (error.code === 'CONFLICT' && reason === 'ALREADY_MEMBER') return t('alreadyMember');
       if (error.code === 'CONFLICT' && reason === 'STALE_VERSION') return t('staleVersion');
       if (error.code === 'VALIDATION' && reason === 'TEMPLATE_RENDER') return t('templateRender');
+      if (reason === 'BLOCKING_ISSUES') return t('blockingIssues');
+      if (reason === 'CONFIRMATION_REQUIRED') return t('confirmationRequired');
+      if (reason === 'SCHEDULE_IN_PAST') return t('scheduleInPast');
+      if (reason === 'PROVIDER_ERROR') return t('providerError');
+      if (reason === 'PROVIDER_IN_USE') return t('providerInUse');
+      if (reason === 'SENDER_MISSING') return t('senderMissing');
       if (error.code === 'UNEXPECTED') return t('UNEXPECTED', { traceId: error.traceId ?? '-' });
       return t(error.code);
     },

@@ -96,6 +96,54 @@ enum DocumentStatus {
   FAILED
 }
 
+enum EmailProviderKind {
+  SMTP
+  MICROSOFT_GRAPH
+  RESEND
+  SES
+}
+
+enum ProviderStatus {
+  ACTIVE
+  ERROR
+  DISABLED
+}
+
+enum CampaignStatus {
+  DRAFT
+  SCHEDULED
+  DISPATCHING
+  SENDING
+  PAUSED
+  SENT
+  CANCELLED
+  FAILED
+}
+
+enum DeliveryStatus {
+  QUEUED
+  SENDING
+  SENT
+  DELIVERED
+  BOUNCED
+  COMPLAINED
+  FAILED
+  SUPPRESSED
+  CANCELLED
+}
+
+enum DeliveryEventType {
+  SENT
+  DELIVERED
+  OPENED
+  CLICKED
+  DOWNLOADED
+  BOUNCED
+  COMPLAINED
+  UNSUBSCRIBED
+  FAILED
+}
+
 // ============================================================================
 // Plataforma e identidad
 // ============================================================================
@@ -132,6 +180,9 @@ model Tenant {
   imports       ContactImport[]
   templates     Template[]
   documents     Document[]
+  providers     EmailProviderConfig[]
+  senders       SenderIdentity[]
+  campaigns     Campaign[]
 
   @@map("tenants")
 }
@@ -600,4 +651,197 @@ model Document {
   @@index([tenantId, createdAt])
   @@index([tenantId, sha256])
   @@map("documents")
+}
+
+// ============================================================================
+// Envío: proveedores, remitentes, campañas, entregas y eventos
+// ============================================================================
+
+/// Proveedor de correo de un tenant. Las credenciales se guardan cifradas (AES-256-GCM).
+model EmailProviderConfig {
+  id                 String            @id @default(uuid(7)) @db.Uuid
+  tenantId           String            @map("tenant_id") @db.Uuid
+  name               String
+  kind               EmailProviderKind
+  /// Ajustes sin secretos (host, puerto, región, clientId...), validados por tipo con Zod.
+  settings           Json              @default("{}")
+  /// Credenciales cifradas: `{keyId}.{iv}.{tag}.{ct}` con AAD tenant:tabla:id.
+  credentialsEnc     String?           @map("credentials_enc")
+  /// Token aleatorio de la URL de webhooks entrantes (/api/webhooks/email/{token}).
+  endpointToken      String            @unique @map("endpoint_token")
+  rateLimitPerSecond Float             @default(10) @map("rate_limit_per_second")
+  maxPerDay          Int?              @map("max_per_day")
+  status             ProviderStatus    @default(ACTIVE)
+  lastError          String?           @map("last_error")
+  lastVerifiedAt     DateTime?         @map("last_verified_at")
+  /// Se incrementa en cada cambio: invalida las conexiones cacheadas en el worker.
+  configVersion      Int               @default(1) @map("config_version")
+  isDefault          Boolean           @default(false) @map("is_default")
+  createdAt          DateTime          @default(now()) @map("created_at")
+  updatedAt          DateTime          @updatedAt @map("updated_at")
+
+  tenant  Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  senders SenderIdentity[]
+
+  @@unique([tenantId, name])
+  @@map("email_provider_configs")
+}
+
+/// Remitente (From) de un tenant y comprobación DNS de su dominio.
+model SenderIdentity {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  providerConfigId String    @map("provider_config_id") @db.Uuid
+  fromName         String    @map("from_name")
+  fromEmail        String    @map("from_email")
+  replyTo          String?   @map("reply_to")
+  isDefault        Boolean   @default(false) @map("is_default")
+  /// { spf, dkim, dmarc }: pass | missing | fail.
+  dnsCheck         Json?     @map("dns_check")
+  dnsCheckedAt     DateTime? @map("dns_checked_at")
+  createdAt        DateTime  @default(now()) @map("created_at")
+  updatedAt        DateTime  @updatedAt @map("updated_at")
+
+  tenant    Tenant              @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  provider  EmailProviderConfig @relation(fields: [providerConfigId], references: [id], onDelete: Restrict)
+  campaigns Campaign[]
+
+  @@unique([tenantId, fromEmail])
+  @@map("sender_identities")
+}
+
+/// Campaña: contenido (copia de la plantilla al programar), audiencia, remitente y programación.
+model Campaign {
+  id               String         @id @default(uuid(7)) @db.Uuid
+  tenantId         String         @map("tenant_id") @db.Uuid
+  name             String
+  status           CampaignStatus @default(DRAFT)
+  templateId       String?        @map("template_id") @db.Uuid
+  templateVersion  Int?           @map("template_version")
+  /// Cuerpo de la plantilla copiado al programar (TemplateBody).
+  body             Json?
+  /// Asunto alternativo para la prueba A/B (reparto 50/50 por destinatario).
+  subjectB         String?        @map("subject_b")
+  /// Correo preparado una sola vez al despachar (asunto, HTML y texto con Liquid pendiente).
+  compiledSubject  String?        @map("compiled_subject")
+  compiledHtml     String?        @map("compiled_html")
+  compiledText     String?        @map("compiled_text")
+  senderIdentityId String?        @map("sender_identity_id") @db.Uuid
+  topicId          String?        @map("topic_id") @db.Uuid
+  /// { listIds, segmentIds, excludeListIds } validado con Zod.
+  audience         Json           @default("{}")
+  scheduledAt      DateTime?      @map("scheduled_at")
+  throttlePerHour  Int?           @map("throttle_per_hour")
+  trackOpens       Boolean        @default(true) @map("track_opens")
+  trackClicks      Boolean        @default(true) @map("track_clicks")
+  /// Control de concurrencia optimista e identificador del job de despacho.
+  version          Int            @default(1)
+  dispatchCursor   String?        @map("dispatch_cursor") @db.Uuid
+  dispatchedAt     DateTime?      @map("dispatched_at")
+  recipientCount   Int            @default(0) @map("recipient_count")
+  error            String?
+  startedAt        DateTime?      @map("started_at")
+  finishedAt       DateTime?      @map("finished_at")
+  createdById      String         @map("created_by_id") @db.Uuid
+  createdAt        DateTime       @default(now()) @map("created_at")
+  updatedAt        DateTime       @updatedAt @map("updated_at")
+
+  tenant     Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  sender     SenderIdentity? @relation(fields: [senderIdentityId], references: [id], onDelete: SetNull)
+  deliveries Delivery[]
+  links      CampaignLink[]
+
+  @@index([tenantId, createdAt])
+  @@index([status, scheduledAt])
+  @@map("campaigns")
+}
+
+/// Enlace de una campaña: el clic se resuelve por id, nunca por una URL del token (sin open redirect).
+model CampaignLink {
+  id         String   @id @default(uuid(7)) @db.Uuid
+  tenantId   String   @map("tenant_id") @db.Uuid
+  campaignId String   @map("campaign_id") @db.Uuid
+  position   Int
+  url        String
+  createdAt  DateTime @default(now()) @map("created_at")
+
+  campaign Campaign @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+
+  @@unique([campaignId, position])
+  @@map("campaign_links")
+}
+
+/// Entrega de una campaña a un contacto. El estado es solo de transporte; la interacción
+/// (aperturas, clics) va en columnas propias y en DeliveryEvent.
+model Delivery {
+  id                String         @id @default(uuid(7)) @db.Uuid
+  tenantId          String         @map("tenant_id") @db.Uuid
+  campaignId        String         @map("campaign_id") @db.Uuid
+  contactId         String         @map("contact_id") @db.Uuid
+  email             String
+  variant           String?
+  providerConfigId  String         @map("provider_config_id") @db.Uuid
+  status            DeliveryStatus @default(QUEUED)
+  providerMessageId String?        @map("provider_message_id")
+  attempts          Int            @default(0)
+  lastError         String?        @map("last_error")
+  claimedAt         DateTime?      @map("claimed_at")
+  sentAt            DateTime?      @map("sent_at")
+  deliveredAt       DateTime?      @map("delivered_at")
+  firstOpenedAt     DateTime?      @map("first_opened_at")
+  openCount         Int            @default(0) @map("open_count")
+  machineOpenOnly   Boolean        @default(false) @map("machine_open_only")
+  firstClickedAt    DateTime?      @map("first_clicked_at")
+  clickCount        Int            @default(0) @map("click_count")
+  unsubscribedAt    DateTime?      @map("unsubscribed_at")
+  createdAt         DateTime       @default(now()) @map("created_at")
+  updatedAt         DateTime       @updatedAt @map("updated_at")
+
+  campaign Campaign        @relation(fields: [campaignId], references: [id], onDelete: Cascade)
+  events   DeliveryEvent[]
+
+  @@unique([campaignId, contactId])
+  @@index([campaignId, status])
+  @@index([providerConfigId, providerMessageId])
+  @@index([status, claimedAt])
+  @@map("deliveries")
+}
+
+model DeliveryEvent {
+  id         String            @id @default(uuid(7)) @db.Uuid
+  tenantId   String            @map("tenant_id") @db.Uuid
+  deliveryId String            @map("delivery_id") @db.Uuid
+  campaignId String            @map("campaign_id") @db.Uuid
+  type       DeliveryEventType
+  /// tracking | provider | system.
+  source     String
+  linkId     String?           @map("link_id") @db.Uuid
+  /// HMAC de la IP con sal diaria (privacidad): permite contar sin guardar la IP.
+  ipHash     String?           @map("ip_hash")
+  userAgent  String?           @map("user_agent")
+  isBot      Boolean           @default(false) @map("is_bot")
+  metadata   Json              @default("{}")
+  occurredAt DateTime          @default(now()) @map("occurred_at")
+
+  delivery Delivery @relation(fields: [deliveryId], references: [id], onDelete: Cascade)
+
+  @@index([campaignId, type])
+  @@index([tenantId, occurredAt])
+  @@map("delivery_events")
+}
+
+/// Evento recibido de un proveedor (webhook). Único por proveedor e id: deduplica reintentos.
+model InboundWebhookEvent {
+  id               String    @id @default(uuid(7)) @db.Uuid
+  tenantId         String    @map("tenant_id") @db.Uuid
+  providerConfigId String    @map("provider_config_id") @db.Uuid
+  providerEventId  String    @map("provider_event_id")
+  type             String
+  payload          Json
+  processedAt      DateTime? @map("processed_at")
+  receivedAt       DateTime  @default(now()) @map("received_at")
+
+  @@unique([providerConfigId, providerEventId])
+  @@index([tenantId, receivedAt])
+  @@map("inbound_webhook_events")
 }

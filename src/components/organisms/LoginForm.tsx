@@ -11,6 +11,7 @@ import Typography from '@mui/material/Typography';
 import { useTranslations } from 'next-intl';
 import { useState, useTransition, type FormEvent } from 'react';
 import { loginWithCredentials, loginWithMicrosoft } from '@/app/_server/auth-actions';
+import { Link } from '@/common/i18n/navigation';
 
 type LoginError = 'invalid' | 'locked' | 'rate_limited' | 'unavailable' | 'sso';
 
@@ -92,6 +93,12 @@ export function LoginForm({
             <Button type="submit" variant="contained" size="large" disabled={pending}>
               {pending ? t('submitting') : t('submit')}
             </Button>
+            <Link
+              href="/forgot-password"
+              className="self-center text-sm text-primary hover:underline"
+            >
+              {t('forgotPassword')}
+            </Link>
           </form>
         ) : null}
       </CardContent>

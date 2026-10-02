@@ -7,8 +7,14 @@
  */
 import { createMCLogClient } from '@multicomputos-srl/mclog';
 import type { Redis } from 'ioredis';
-import { getServerEnv, getSigningEnv } from '@/common/config/env';
+import { getEncryptionEnv, getServerEnv, getSigningEnv } from '@/common/config/env';
+import { AesGcmSecretCipher } from './crypto/aes-gcm-secret-cipher';
+import { NodeDnsChecker } from './dns/dns-checker';
 import { MagicBytesFileInspector } from './documents/file-inspector';
+import {
+  CachingEmailProviderGateway,
+  DefaultEmailProviderFactory,
+} from './email-providers/provider-gateway';
 import { GotenbergDocumentConverter } from './documents/gotenberg-converter';
 import { PopplerPdfToolkit } from './documents/poppler-pdf-toolkit';
 import { SharpImageProcessor } from './documents/sharp-image-processor';
@@ -20,10 +26,22 @@ import { WorkerHeartbeat, workerHeartbeatHealthCheck } from './observability/wor
 import { createPrismaClient, type PrismaClient } from './persistence/prisma/client';
 import { TenantClientCache } from './persistence/prisma/tenant-scope.extension';
 import { createRedisConnection } from './queue/connection';
-import { BullContactImportQueue, BullDocumentQueue } from './queue/jobs';
+import { SmtpSystemMailer } from './notifications/system-mailer';
+import { PrismaProviderConfigRepository } from './persistence/prisma/repositories/provider.prisma-repositories';
+import {
+  BullCampaignQueue,
+  BullContactImportQueue,
+  BullDocumentQueue,
+  BullProviderEventQueue,
+  BullSystemMailQueue,
+} from './queue/jobs';
+import { TrackingEmailInstrumenter } from './rendering/email-instrumenter';
 import { HtmlEmailCompiler } from './rendering/email-compiler';
 import { RateLimiter, RATE_LIMITS } from './security/rate-limiter';
+import { RedisSendThrottle } from './security/send-throttle';
 import { HmacPublicAssetLinks } from './security/signed-asset-links';
+import { HmacTrackingLinks } from './security/tracking-links';
+import { DefaultProviderWebhookParser } from './webhooks/provider-webhook-parser';
 import { S3ObjectStorage } from './storage/s3.object-storage';
 
 export type ServiceName = 'web' | 'worker';
@@ -38,6 +56,10 @@ interface ContainerState {
   storage?: S3ObjectStorage;
   contactImportQueue?: BullContactImportQueue;
   documentQueue?: BullDocumentQueue;
+  campaignQueue?: BullCampaignQueue;
+  providerEventQueue?: BullProviderEventQueue;
+  systemMailQueue?: BullSystemMailQueue;
+  providerGateway?: CachingEmailProviderGateway;
   rateLimiters?: Map<keyof typeof RATE_LIMITS, RateLimiter>;
   memo?: Map<string, unknown>;
 }
@@ -163,6 +185,75 @@ export function getPublicAssetLinks(): HmacPublicAssetLinks {
   );
 }
 
+export function getCampaignQueue(): BullCampaignQueue {
+  state.campaignQueue ??= new BullCampaignQueue(getRedis());
+  return state.campaignQueue;
+}
+
+export function getProviderEventQueue(): BullProviderEventQueue {
+  state.providerEventQueue ??= new BullProviderEventQueue(getRedis());
+  return state.providerEventQueue;
+}
+
+export function getSystemMailQueue(): BullSystemMailQueue {
+  state.systemMailQueue ??= new BullSystemMailQueue(getRedis());
+  return state.systemMailQueue;
+}
+
+export function getSecretCipher(): AesGcmSecretCipher {
+  return memoize('secretCipher', () => {
+    const env = getEncryptionEnv();
+    return new AesGcmSecretCipher(env.keys, env.activeKeyId);
+  });
+}
+
+export function getEmailProviderFactory(): DefaultEmailProviderFactory {
+  return memoize(
+    'emailProviderFactory',
+    () => new DefaultEmailProviderFactory({ allowPrivateHosts: getServerEnv().SSRF_ALLOW_PRIVATE }),
+  );
+}
+
+/** Conexiones a proveedores reutilizadas por proceso (pool SMTP, token de Graph). */
+export function getEmailProviderGateway(): CachingEmailProviderGateway {
+  state.providerGateway ??= new CachingEmailProviderGateway(
+    new PrismaProviderConfigRepository(getPrisma(), getTenantClients()),
+    getSecretCipher(),
+    getEmailProviderFactory(),
+  );
+  return state.providerGateway;
+}
+
+export function getDnsChecker(): NodeDnsChecker {
+  return memoize('dnsChecker', () => new NodeDnsChecker());
+}
+
+export function getTrackingLinks(): HmacTrackingLinks {
+  return memoize(
+    'trackingLinks',
+    () => new HmacTrackingLinks(getSigningEnv().TRACKING_SIGNING_SECRET, getServerEnv().APP_URL),
+  );
+}
+
+export function getEmailInstrumenter(): TrackingEmailInstrumenter {
+  return memoize('emailInstrumenter', () => new TrackingEmailInstrumenter());
+}
+
+export function getSendThrottle(): RedisSendThrottle {
+  return memoize('sendThrottle', () => new RedisSendThrottle(getRedis()));
+}
+
+export function getWebhookParser(): DefaultProviderWebhookParser {
+  return memoize('webhookParser', () => new DefaultProviderWebhookParser());
+}
+
+export function getSystemMailer(): SmtpSystemMailer {
+  return memoize('systemMailer', () => {
+    const env = getServerEnv();
+    return new SmtpSystemMailer(env.SYSTEM_MAIL_SMTP_URL, env.SYSTEM_MAIL_FROM);
+  });
+}
+
 export function getRateLimiter(name: keyof typeof RATE_LIMITS): RateLimiter {
   state.rateLimiters ??= new Map();
   let limiter = state.rateLimiters.get(name);
@@ -209,6 +300,7 @@ export function getReadinessChecks(): HealthCheck[] {
 
 /** Cierre ordenado: envía los logs pendientes y libera conexiones. */
 export async function shutdownContainer(): Promise<void> {
+  await state.providerGateway?.closeAll();
   await state.mclogStream?.close();
   await Promise.allSettled([state.prisma?.$disconnect(), state.redis?.quit()]);
   state.prisma = undefined;

@@ -11,6 +11,7 @@ import {
   configureContainer,
   getLogger,
   getObjectStorage,
+  getSystemMailer,
   getWorkerHeartbeat,
   shutdownContainer,
 } from '@/infrastructure/container';
@@ -19,6 +20,12 @@ import { createRedisConnection } from '@/infrastructure/queue/connection';
 import { QUEUE_NAMES, type QueueName } from '@/infrastructure/queue/queue-names';
 import { useCases } from '@/infrastructure/use-case-factory';
 import { startHealthServer } from './health-server';
+import {
+  createCampaignDispatchProcessor,
+  createEmailSendProcessor,
+  createProviderEventProcessor,
+  createSystemMailProcessor,
+} from './processors/campaign.processors';
 import { createContactImportProcessor } from './processors/contact-import.processor';
 import { createDocumentProcessor } from './processors/document-process.processor';
 import { createMaintenanceProcessor } from './processors/maintenance.processor';
@@ -55,11 +62,15 @@ async function main(): Promise<void> {
 
   const maintenanceQueue = new Queue(QUEUE_NAMES.maintenance, { connection });
   const workers = [
-    startWorker(QUEUE_NAMES.maintenance, createMaintenanceProcessor(getWorkerHeartbeat()), {
-      connection,
-      concurrency: 1,
-      logger,
-    }),
+    startWorker(
+      QUEUE_NAMES.maintenance,
+      createMaintenanceProcessor(getWorkerHeartbeat(), useCases.campaignMaintenance()),
+      {
+        connection,
+        concurrency: 1,
+        logger,
+      },
+    ),
     startWorker(
       QUEUE_NAMES.contactImport,
       createContactImportProcessor({ processImport: useCases.processImport() }),
@@ -70,6 +81,26 @@ async function main(): Promise<void> {
       createDocumentProcessor({ processDocument: useCases.processDocument() }),
       { connection, concurrency: 2, logger },
     ),
+    startWorker(
+      QUEUE_NAMES.campaignDispatch,
+      createCampaignDispatchProcessor({ dispatch: useCases.dispatchCampaign() }),
+      { connection, concurrency: 2, logger },
+    ),
+    startWorker(
+      QUEUE_NAMES.emailSend,
+      createEmailSendProcessor({ send: useCases.sendDelivery() }),
+      { connection, concurrency: env.EMAIL_SEND_CONCURRENCY, logger },
+    ),
+    startWorker(
+      QUEUE_NAMES.providerEvents,
+      createProviderEventProcessor({ apply: useCases.applyProviderEvent() }),
+      { connection, concurrency: 4, logger },
+    ),
+    startWorker(QUEUE_NAMES.systemMail, createSystemMailProcessor({ mailer: getSystemMailer() }), {
+      connection,
+      concurrency: 2,
+      logger,
+    }),
   ];
 
   await registerMaintenanceSchedulers(maintenanceQueue);

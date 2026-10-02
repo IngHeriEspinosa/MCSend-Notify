@@ -5,12 +5,19 @@
  * - MCLog: tenant vacío para probar la configuración desde cero.
  * Autor: Ing. Heri Espinosa
  */
-import { createHash, randomUUID } from 'node:crypto';
+import { createHash, randomBytes, randomUUID } from 'node:crypto';
 import { readFileSync } from 'node:fs';
 import { z } from 'zod';
-import { parseServerEnv, type ServerEnv } from '../src/common/config/env';
+import {
+  parseEncryptionEnv,
+  parseServerEnv,
+  type EncryptionEnv,
+  type ServerEnv,
+} from '../src/common/config/env';
+import { providerCredentialsAad } from '../src/core/providers/use-cases/providers.use-cases';
 import { systemContext } from '../src/core/shared/tenant-context';
 import { templateBodySchema } from '../src/core/templates/email-content';
+import { AesGcmSecretCipher } from '../src/infrastructure/crypto/aes-gcm-secret-cipher';
 import { Argon2PasswordHasher } from '../src/infrastructure/crypto/crypto-services';
 import {
   createPrismaClient,
@@ -393,6 +400,67 @@ async function seedDemoTemplates(
   }
 }
 
+/**
+ * Envío de demostración: proveedor SMTP hacia Mailpit (credenciales cifradas como en producción),
+ * remitente por defecto y una campaña en borrador dirigida a la lista "Clientes activos".
+ * El host por defecto es `mailpit`, el nombre del servicio en la red de Docker del worker.
+ */
+async function seedDemoSending(prisma: PrismaClient, tenantId: string, adminId: string) {
+  if (await prisma.emailProviderConfig.findFirst({ where: { tenantId }, select: { id: true } }))
+    return;
+  let encryption: EncryptionEnv;
+  try {
+    encryption = parseEncryptionEnv(process.env);
+  } catch {
+    console.warn('Seed: sin ENCRYPTION_KEYS; se omite el proveedor de demostración.');
+    return;
+  }
+  const providerId = randomUUID();
+  const cipher = new AesGcmSecretCipher(encryption.keys, encryption.activeKeyId);
+  await prisma.emailProviderConfig.create({
+    data: {
+      id: providerId,
+      tenantId,
+      name: 'Mailpit (desarrollo)',
+      kind: 'SMTP',
+      settings: { host: process.env.SEED_SMTP_HOST ?? 'mailpit', port: 1025, security: 'none' },
+      credentialsEnc: cipher.encrypt(
+        JSON.stringify({ username: null, password: null }),
+        providerCredentialsAad(tenantId, providerId),
+      ),
+      endpointToken: randomBytes(32).toString('base64url'),
+      rateLimitPerSecond: 50,
+      isDefault: true,
+    },
+  });
+  const sender = await prisma.senderIdentity.create({
+    data: {
+      tenantId,
+      providerConfigId: providerId,
+      fromName: 'MCSupport',
+      fromEmail: 'novedades@multicomputos.com',
+      replyTo: 'soporte@multicomputos.com',
+      isDefault: true,
+    },
+  });
+  const [template, list] = await Promise.all([
+    prisma.template.findFirst({ where: { tenantId, name: 'Actualización de producto' } }),
+    prisma.contactList.findFirst({ where: { tenantId, name: 'Clientes activos' } }),
+  ]);
+  if (template && list) {
+    await prisma.campaign.create({
+      data: {
+        tenantId,
+        name: 'Lanzamiento MCSupport 3.2',
+        templateId: template.id,
+        senderIdentityId: sender.id,
+        audience: { listIds: [list.id], segmentIds: [], excludeListIds: [] },
+        createdById: adminId,
+      },
+    });
+  }
+}
+
 async function main(): Promise<void> {
   const prisma = createPrismaClient(seedEnv.DATABASE_URL);
   try {
@@ -424,9 +492,10 @@ async function main(): Promise<void> {
     await seedDemoAudience(prisma, mcsupport.id);
     const deckId = await seedSampleDeck(prisma, mcsupport, admin.id);
     await seedDemoTemplates(prisma, mcsupport.id, admin.id, deckId);
+    await seedDemoSending(prisma, mcsupport.id, admin.id);
 
     console.log(
-      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos, plantillas y presentación de demostración, y MCLog vacío.`,
+      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos, plantillas, presentación, proveedor SMTP (Mailpit) y campaña de demostración, y MCLog vacío.`,
     );
   } finally {
     await prisma.$disconnect();

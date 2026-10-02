@@ -33,3 +33,12 @@ export interface SecretTokenService {
 export interface ContentHasher {
   sha256(bytes: Uint8Array): string;
 }
+
+/**
+ * Cifrado autenticado de secretos en reposo (credenciales de proveedores). El AAD liga el texto
+ * cifrado a su fila (`tenant:tabla:id`): copiarlo a otra fila hace fallar el descifrado.
+ */
+export interface SecretCipher {
+  encrypt(plaintext: string, aad: string): string;
+  decrypt(ciphertext: string, aad: string): string;
+}

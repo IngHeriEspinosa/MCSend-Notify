@@ -5,6 +5,7 @@
  * desplegable en móvil), selector de aplicación (tenant) y menú de usuario.
  * La navegación llega ya filtrada por permisos desde el servidor.
  */
+import AlternateEmailOutlined from '@mui/icons-material/AlternateEmailOutlined';
 import AppsOutlined from '@mui/icons-material/AppsOutlined';
 import ArticleOutlined from '@mui/icons-material/ArticleOutlined';
 import BrushOutlined from '@mui/icons-material/BrushOutlined';
@@ -13,6 +14,7 @@ import DashboardOutlined from '@mui/icons-material/DashboardOutlined';
 import FilterAltOutlined from '@mui/icons-material/FilterAltOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
+import HubOutlined from '@mui/icons-material/HubOutlined';
 import KeyOutlined from '@mui/icons-material/KeyOutlined';
 import LabelOutlined from '@mui/icons-material/LabelOutlined';
 import ListAltOutlined from '@mui/icons-material/ListAltOutlined';
@@ -20,6 +22,7 @@ import MailOutlined from '@mui/icons-material/MailOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
 import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined';
+import SendOutlined from '@mui/icons-material/SendOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
@@ -52,10 +55,13 @@ export type NavIcon =
   | 'lists'
   | 'segments'
   | 'import'
+  | 'campaigns'
   | 'templates'
   | 'documents'
   | 'general'
   | 'branding'
+  | 'providers'
+  | 'senders'
   | 'members'
   | 'fields'
   | 'tags'
@@ -69,10 +75,13 @@ const ICONS: Record<NavIcon, ReactElement> = {
   lists: <ListAltOutlined />,
   segments: <FilterAltOutlined />,
   import: <UploadFileOutlined />,
+  campaigns: <SendOutlined />,
   templates: <MailOutlined />,
   documents: <ArticleOutlined />,
   general: <SettingsOutlined />,
   branding: <BrushOutlined />,
+  providers: <HubOutlined />,
+  senders: <AlternateEmailOutlined />,
   members: <GroupOutlined />,
   fields: <TuneOutlined />,
   tags: <LabelOutlined />,

@@ -31,6 +31,8 @@ export interface TemplateIssue {
 export const GMAIL_CLIP_BYTES = 102 * 1024;
 export const SUBJECT_RECOMMENDED_MAX = 78;
 
-export function hasBlockingIssues(issues: readonly TemplateIssue[]): boolean {
+export function hasBlockingIssues(
+  issues: ReadonlyArray<{ severity: TemplateIssueSeverity }>,
+): boolean {
   return issues.some((issue) => issue.severity === 'error');
 }

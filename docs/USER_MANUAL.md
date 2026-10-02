@@ -63,18 +63,29 @@ Esta sección es para el equipo técnico que instala la plataforma.
 2. Entra con tu correo y contraseña, o con **Continuar con Microsoft** si tu organización lo tiene activado.
 3. Tras 5 intentos fallidos, la cuenta se bloquea 15 minutos por seguridad.
 
+### Recuperar la contraseña
+
+1. En la página de acceso, pulsa **¿Olvidaste tu contraseña?** y escribe tu correo.
+2. Si la dirección corresponde a una cuenta con contraseña, recibirás un enlace. Por seguridad, la página muestra el mismo mensaje exista o no la cuenta.
+3. El enlace caduca en 1 hora y solo sirve una vez. Elige una contraseña de al menos 12 caracteres.
+4. Al guardarla se cierran las sesiones abiertas en otros dispositivos.
+
+Si entras con Microsoft, tu contraseña se gestiona en Microsoft 365, no aquí.
+
 ### Elegir la aplicación
 
 Si perteneces a varias aplicaciones, elige una en **Elige una aplicación**. Puedes cambiar en cualquier momento desde el selector situado arriba a la izquierda.
 
 ### Roles
 
-| Rol           | Puede                                                                                     |
-| ------------- | ----------------------------------------------------------------------------------------- |
-| Propietario   | Todo, incluida la gestión de otros propietarios                                           |
-| Administrador | Todo salvo gestionar propietarios                                                         |
-| Editor        | Gestionar contactos, importaciones, listas, segmentos, etiquetas, plantillas y documentos |
-| Lector        | Consultar contactos, listas, segmentos, miembros, plantillas y documentos                 |
+| Rol           | Puede                                                                                                              |
+| ------------- | ------------------------------------------------------------------------------------------------------------------ |
+| Propietario   | Todo, incluida la gestión de otros propietarios                                                                    |
+| Administrador | Todo salvo gestionar propietarios                                                                                  |
+| Editor        | Gestionar contactos, importaciones, listas, segmentos, etiquetas, plantillas y documentos; crear y enviar campañas |
+| Lector        | Consultar contactos, listas, segmentos, miembros, plantillas, documentos y campañas                                |
+
+Solo los propietarios y administradores configuran los proveedores de correo y los remitentes.
 
 ### Idioma y tema
 
@@ -191,12 +202,100 @@ Usa el buscador y el filtro **Tipo** para encontrar documentos.
 
 En la lista de plantillas también puedes **duplicar** o **eliminar** una plantilla.
 
-## 8. Configuración
+## 8. Campañas
+
+Una campaña envía una plantilla a una audiencia (listas y segmentos) desde un remitente. Antes de la primera campaña, la aplicación necesita un **proveedor de correo** y un **remitente** (ver [Configuración](#9-configuración)).
+
+### Crear una campaña
+
+1. En **Campañas**, pulsa **Nueva campaña**, ponle un nombre y elige la plantilla.
+2. El asistente tiene cinco pasos. Puedes moverte entre ellos con **Siguiente**, **Volver** o pulsando el nombre del paso. Los cambios se guardan como borrador al cambiar de paso o con **Guardar borrador**.
+
+| Paso         | Qué haces                                                                                                                                               |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Contenido    | Revisas la plantilla. Si necesitas cambiarla, pulsa **Editar la plantilla**: la campaña usa la versión vigente en el momento de programarla.            |
+| Audiencia    | Eliges listas y segmentos, listas para **excluir** y, opcionalmente, un **tema de suscripción**. Ves en vivo cuántos destinatarios recibirán el correo. |
+| Envío        | Eliges el remitente, un **asunto alternativo** para la prueba A/B (opcional), si se registran aperturas y clics, y un máximo de envíos por hora.        |
+| Revisión     | Ves las comprobaciones y la vista previa. Puedes mandar una **prueba** a hasta 5 direcciones.                                                           |
+| Programación | **Enviar ahora** o **Programar para más tarde** (fecha y hora de tu navegador).                                                                         |
+
+Notas:
+
+- **Quién no recibe la campaña:**
+  - contactos dados de baja, con rebote permanente, con queja o suprimidos;
+  - quien se dio de baja del tema elegido.
+- **Un solo correo por persona:** un contacto que esté en varias listas recibe un único correo.
+- **Comprobaciones:**
+  - con errores (por ejemplo, falta la dirección postal o un documento eliminado) la campaña no se puede enviar;
+  - los avisos (por ejemplo, DNS del remitente incompleto) permiten enviar, pero conviene corregirlos.
+- **Confirmación:** a partir de 500 destinatarios hay que escribir el número exacto para evitar envíos por error.
+- **Prueba A/B:** la mitad de los destinatarios recibe el asunto A y la otra mitad el B. El informe compara aperturas y clics. La elección de la versión ganadora es manual.
+- **Envío de prueba:**
+  - lleva `[Prueba]` delante del asunto;
+  - usa un contacto de ejemplo;
+  - no registra aperturas ni clics.
+
+### Seguir el envío
+
+Al lanzar la campaña se abre su informe, que se actualiza solo cada pocos segundos:
+
+- **Progreso:** cuántos correos se han procesado del total.
+- **Métricas:**
+  - destinatarios, enviados (y confirmados por el proveedor);
+  - aperturas y clics (personas únicas), descargas de documentos;
+  - bajas, rebotes, quejas, fallidos y no enviados (suprimidos durante el envío).
+- **Enlaces:** clics y personas por cada enlace.
+- **Entregas:** tabla con buscador y filtro por estado, con el detalle de cada correo.
+
+Acciones disponibles:
+
+| Acción               | Cuándo                            | Efecto                                                         |
+| -------------------- | --------------------------------- | -------------------------------------------------------------- |
+| **Desprogramar**     | Campaña programada                | Vuelve a borrador                                              |
+| **Pausar**           | Enviándose                        | Detiene el envío; los correos pendientes esperan               |
+| **Reanudar**         | En pausa                          | Continúa desde donde se quedó, sin repetir correos ya enviados |
+| **Cancelar campaña** | Programada, enviándose o en pausa | Los correos pendientes no se envían. No se puede deshacer      |
+
+Si el proveedor rechaza las credenciales durante el envío, la campaña se **pausa sola** y el informe lo explica. Corrige el proveedor, pulsa **Probar conexión** y después **Reanudar**.
+
+Desde la lista de campañas también puedes **duplicar** una campaña (por ejemplo, para repetir un envío) o eliminar un borrador o una campaña cancelada.
+
+### Sobre las métricas
+
+- **Aperturas:**
+  - se miden con una imagen invisible, así que quien bloquea las imágenes no cuenta;
+  - las aperturas automáticas (por ejemplo, Apple Mail Privacy Protection) se muestran aparte y no se suman.
+- **Clics:**
+  - los antivirus de correo que comprueban los enlaces (por ejemplo, Microsoft Safe Links) no cuentan como clics;
+  - un clic cuenta también como apertura.
+- **Entregas, rebotes y quejas:** solo los informan Resend y Amazon SES. Con SMTP o Microsoft 365 solo se ven los rechazos inmediatos.
+
+### Lo que ve tu cliente al darse de baja
+
+Cada correo incluye en el pie un enlace a las **preferencias de suscripción**:
+
+- muestra su dirección parcialmente oculta;
+- permite elegir qué temas recibir o **darse de baja de todo**.
+
+Gmail, Outlook y Yahoo muestran además un botón **Cancelar suscripción** junto al remitente, que da de baja en un solo clic:
+
+- si la campaña tiene tema, solo de ese tema;
+- si no lo tiene, de todas las comunicaciones de la aplicación.
+
+La baja es inmediata y se respeta aunque la campaña siga enviándose.
+
+### Panel de inicio
+
+**Inicio** muestra los totales de contactos, listas y segmentos, la actividad de los últimos 30 días (enviados, aperturas y clics) y las campañas recientes. La gráfica tiene una tabla equivalente para lectores de pantalla.
+
+## 9. Configuración
 
 | Sección               | Para qué sirve                                                                                         |
 | --------------------- | ------------------------------------------------------------------------------------------------------ |
 | General               | Nombre, idioma, zona horaria y **dirección postal** (obligatoria en el pie de los correos comerciales) |
 | Marca de los correos  | Logotipo, color principal, color de los botones y texto del pie de todos los correos                   |
+| Proveedores de correo | Servicios que envían los correos: SMTP, Microsoft 365, Resend o Amazon SES                             |
+| Remitentes            | Direcciones desde las que se envía y estado de su autenticación DNS                                    |
 | Miembros              | Invitar personas, cambiar su rol o quitarles el acceso                                                 |
 | Campos personalizados | Datos adicionales de los contactos: texto, número, fecha, sí/no o selección                            |
 | Etiquetas             | Marcas libres para clasificar contactos                                                                |
@@ -207,7 +306,7 @@ En la lista de plantillas también puedes **duplicar** o **eliminar** una planti
 ### Invitar a un miembro
 
 1. En **Miembros**, pulsa **Invitar**, escribe el correo y elige el rol.
-2. Copia el enlace que aparece y envíaselo a la persona. El enlace caduca en 7 días y solo se muestra una vez.
+2. La persona recibe un correo con la invitación (si la plataforma tiene configurado el correo del sistema). También aparece el enlace para copiarlo y enviarlo por otro medio. Caduca en 7 días y solo se muestra una vez.
 3. Al abrir el enlace:
    - si la persona no tiene cuenta, crea una contraseña de al menos 12 caracteres;
    - si ya tiene cuenta, inicia sesión con ese mismo correo y acepta.
@@ -220,6 +319,32 @@ En la lista de plantillas también puedes **duplicar** o **eliminar** una planti
 4. El panel **Contraste (WCAG AA)** indica si cada color **Cumple**. Si no cumple, no se puede guardar.
 5. **Texto del pie** (opcional): admite Markdown sencillo. La dirección postal y los enlaces de baja se añaden siempre.
 
+### Proveedores de correo
+
+1. En **Proveedores de correo**, pulsa **Nuevo proveedor**, ponle un nombre y elige el tipo.
+
+| Tipo          | Cuándo usarlo                                                           | Datos necesarios                                                                    |
+| ------------- | ----------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| SMTP          | Servidor propio o volúmenes bajos                                       | Servidor, puerto, seguridad (STARTTLS o TLS), usuario y contraseña                  |
+| Microsoft 365 | Envíos desde un buzón corporativo (máx. ~30 por minuto y 10.000 al día) | Id. de inquilino, id. de aplicación y secreto de cliente con el permiso `Mail.Send` |
+| Resend        | Envíos masivos con informes de entrega, rebotes y quejas                | Clave de API (`re_…`) y, para los eventos, el secreto del webhook (`whsec_…`)       |
+| Amazon SES    | Grandes volúmenes                                                       | Región, Access key ID, Secret access key y, para los eventos, un Configuration Set  |
+
+2. Ajusta los **envíos por segundo** (admite decimales: 0,5 equivale a 30 por minuto) y el **máximo al día** a los límites de tu cuenta del proveedor. La plataforma nunca los supera, aunque haya varias campañas a la vez.
+3. Pulsa **Probar conexión**. El proveedor queda **Operativo** o **Con error**, con el motivo.
+4. **Eventos (Resend y SES):** copia la **URL para eventos** que muestra la tarjeta del proveedor:
+   - en Resend, crea un webhook con esa URL para los eventos _delivered_, _bounced_ y _complained_, y pega su secreto en el proveedor;
+   - en SES, crea un tema SNS con una suscripción HTTPS a esa URL y asócialo al Configuration Set (la suscripción se confirma sola).
+
+Las credenciales se guardan cifradas y nunca se vuelven a mostrar. Al editar, deja vacío un campo secreto para conservar el valor guardado. Un proveedor con remitentes no se puede eliminar.
+
+### Remitentes
+
+1. En **Remitentes**, pulsa **Nuevo remitente**. Escribe el nombre visible, el email y, opcionalmente, una dirección de respuesta. Elige el proveedor.
+2. El email debe pertenecer a un dominio verificado en el proveedor.
+3. Al guardarlo se comprueban los registros DNS **SPF**, **DKIM** y **DMARC** del dominio. Gmail y Yahoo los exigen a los remitentes masivos; sin ellos, los correos pueden acabar en spam. Pulsa **Comprobar DNS** después de corregirlos.
+4. Marca un **remitente por defecto**: las campañas nuevas lo usan automáticamente.
+
 ### Crear una clave de API
 
 1. En **Claves de API**, pulsa **Nueva clave**, ponle un nombre y elige los permisos y la caducidad.
@@ -227,33 +352,37 @@ En la lista de plantillas también puedes **duplicar** o **eliminar** una planti
 3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts`. El README tiene un ejemplo.
 4. Si la clave se expone, pulsa **Revocar**: deja de funcionar de inmediato.
 
-## 9. Funciones próximas
+## 10. Funciones próximas
 
-| Función                                                                                    | Estado                |
-| ------------------------------------------------------------------------------------------ | --------------------- |
-| Campañas, envíos programados, pruebas A/B, métricas de apertura y clics, bajas automáticas | Próximamente (Fase 3) |
-| Envío de invitaciones por correo                                                           | Próximamente (Fase 3) |
-| Redacción con IA, resúmenes semanales automáticos y aprobación antes de enviar             | Próximamente (Fase 4) |
-| Instalación como aplicación (PWA)                                                          | Próximamente (Fase 5) |
+| Función                                                                        | Estado                |
+| ------------------------------------------------------------------------------ | --------------------- |
+| Redacción con IA, resúmenes semanales automáticos y aprobación antes de enviar | Próximamente (Fase 4) |
+| Instalación como aplicación (PWA)                                              | Próximamente (Fase 5) |
 
-## 10. Resolución de problemas
+## 11. Resolución de problemas
 
-| Problema                                                            | Qué hacer                                                                                     |
-| ------------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
-| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                          |
-| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador                      |
-| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                           |
-| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                                   |
-| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`)        |
-| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                                |
-| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar                    |
-| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`                 |
-| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                           |
-| Un documento se queda "En cola"                                     | El procesador de tareas no está en marcha                                                     |
-| Un documento muestra "Faltan herramientas de conversión"            | El procesador de tareas no tiene poppler: ejecútalo en Docker (`docker compose up -d worker`) |
-| Un documento queda en "Error"                                       | Comprueba que el archivo se abre y no tiene contraseña; después pulsa **Reintentar**          |
-| "Otra persona guardó la plantilla mientras la editabas"             | Recarga la página: verás la última versión y podrás volver a aplicar tus cambios              |
-| "Contraste insuficiente" al guardar la marca                        | Elige un color más oscuro para los enlaces o cambia el color de los botones                   |
-| La vista previa dice que hay campos incompletos                     | Revisa los bloques: los botones necesitan un enlace https y las imágenes, texto alternativo   |
+| Problema                                                            | Qué hacer                                                                                             |
+| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
+| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                                  |
+| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador                              |
+| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                                   |
+| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                                           |
+| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`)                |
+| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                                        |
+| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar                            |
+| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`                         |
+| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                                   |
+| Un documento se queda "En cola"                                     | El procesador de tareas no está en marcha                                                             |
+| Un documento muestra "Faltan herramientas de conversión"            | El procesador de tareas no tiene poppler: ejecútalo en Docker (`docker compose up -d worker`)         |
+| Un documento queda en "Error"                                       | Comprueba que el archivo se abre y no tiene contraseña; después pulsa **Reintentar**                  |
+| "Otra persona guardó la plantilla mientras la editabas"             | Recarga la página: verás la última versión y podrás volver a aplicar tus cambios                      |
+| "Contraste insuficiente" al guardar la marca                        | Elige un color más oscuro para los enlaces o cambia el color de los botones                           |
+| La vista previa dice que hay campos incompletos                     | Revisa los bloques: los botones necesitan un enlace https y las imágenes, texto alternativo           |
+| **Probar conexión** falla con un error de autenticación             | Revisa usuario y contraseña, o la clave de API; en Microsoft 365, que la aplicación tenga `Mail.Send` |
+| Una campaña se pausó sola                                           | El proveedor rechazó las credenciales: corrígelas, **Probar conexión** y **Reanudar**                 |
+| Una campaña programada no sale                                      | El procesador de tareas no está en marcha (`docker compose up -d worker`)                             |
+| El número de destinatarios es menor de lo esperado                  | Se excluyen bajas, rebotes, quejas, supresiones y bajas del tema elegido                              |
+| Los correos llegan a spam                                           | Corrige SPF, DKIM y DMARC del remitente (**Comprobar DNS**) y reduce los envíos por segundo           |
+| No llega el correo de recuperación o de invitación                  | Revisa spam; si no está, el correo del sistema no está configurado: avisa al equipo técnico           |
 
 Si el problema persiste, contacta con el equipo de desarrollo. Indica el **código de seguimiento** que muestran los errores inesperados, o el `x-trace-id` de las cabeceras de la respuesta. Ambos permiten localizar la operación en los logs.

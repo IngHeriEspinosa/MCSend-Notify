@@ -47,6 +47,8 @@ export interface RecipientVariables {
   unsubscribe_url: string;
   preferences_url: string;
   current_year: number;
+  /** Seguimiento de la entrega (solo en envíos reales): píxel y enlaces sustituidos. */
+  tracking?: { open_url: string; links: Record<string, string> } | undefined;
 }
 
 /** Contacto ficticio para la vista previa cuando no se elige uno real. */

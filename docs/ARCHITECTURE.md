@@ -21,6 +21,8 @@ flowchart LR
   worker --> s3
   worker --> gotenberg[Gotenberg<br/>PPTX/DOCX→PDF]
   worker -->|SMTP / API| providers[[Proveedores de correo]]
+  providers -->|webhooks firmados| app
+  recipients([Destinatarios]) -->|/trk: aperturas, clics, bajas| app
   app -. logs warn+ .-> mclog[[MCLog]]
   worker -. logs warn+ .-> mclog
 ```
@@ -86,7 +88,19 @@ sequenceDiagram
 
 El latido prueba de extremo a extremo que Redis funciona, que el scheduler programa jobs y que el worker los procesa.
 
-La cola `contact-import` ya está activa (Fase 1). Las colas planificadas para las siguientes fases son `campaign-dispatch`, `send-{providerConfigId}`, `document-process`, `automation-run`, `ai-generate`, `webhook-ingest`, `outbound-webhook`, `system-mail` y `dead-letter`. Están descritas en el plan del proyecto. BullMQ no admite `:` en los nombres de cola.
+Colas activas:
+
+| Cola                | Fase | Job id                            | Uso                                                                       |
+| ------------------- | ---- | --------------------------------- | ------------------------------------------------------------------------- |
+| `maintenance`       | 0    | por scheduler                     | Latido; barridos de campañas programadas, terminadas y entregas atascadas |
+| `contact-import`    | 1    | `import-{id}`                     | Importación de CSV o Excel                                                |
+| `document-process`  | 2    | `document-{id}-{marca de tiempo}` | Conversión, miniatura y texto                                             |
+| `campaign-dispatch` | 3    | `dispatch-{campaignId}-{version}` | Crear las entregas de una campaña y encolarlas                            |
+| `email-send`        | 3    | `delivery-{deliveryId}`           | Enviar una entrega (6 intentos, backoff exponencial)                      |
+| `provider-events`   | 3    | `event-{id}`                      | Aplicar eventos de webhooks (rebotes, quejas, entregas)                   |
+| `system-mail`       | 3    | aleatorio                         | Invitaciones y recuperación de contraseña                                 |
+
+Las colas `automation-run`, `ai-generate` y `outbound-webhook` llegan en la Fase 4. BullMQ no admite `:` en los nombres de cola.
 
 ## 5. Multi-tenancy
 
@@ -211,12 +225,131 @@ sequenceDiagram
 
 En los correos, la tarjeta del documento muestra la miniatura desde `/trk/i/{token}` y enlaza la descarga en `/trk/d/{token}`. Ambas son URL firmadas con HMAC, públicas y sin caducidad. En la interfaz los archivos se sirven con sesión desde `/api/t/{slug}/documents/{id}/file`. El detalle está en el [ADR 0007](adr/0007-document-processing.md).
 
-## 10. Diseño de la UI
+## 10. Campañas y envío
+
+Estados de una campaña:
+
+```mermaid
+stateDiagram-v2
+  [*] --> DRAFT
+  DRAFT --> SCHEDULED: programar (comprobaciones sin errores)
+  SCHEDULED --> DRAFT: desprogramar
+  SCHEDULED --> DISPATCHING: llega la hora
+  DISPATCHING --> SENDING: entregas creadas
+  DISPATCHING --> PAUSED: pausar
+  PAUSED --> DISPATCHING: reanudar un despacho a medias
+  DISPATCHING --> CANCELLED
+  SENDING --> PAUSED: pausar o fallo del proveedor
+  PAUSED --> SENDING: reanudar
+  SENDING --> SENT: sin entregas pendientes (inmediato si la audiencia está vacía)
+  SCHEDULED --> CANCELLED
+  SENDING --> CANCELLED
+  PAUSED --> CANCELLED
+  DISPATCHING --> FAILED: contenido inválido
+```
+
+Flujo de envío:
+
+```mermaid
+sequenceDiagram
+  participant U as Usuario
+  participant A as Server Action
+  participant D as Cola campaign-dispatch
+  participant W as Worker
+  participant DB as PostgreSQL
+  participant E as Cola email-send
+  participant T as Redis (ritmo y cupos)
+  participant P as Proveedor
+  U->>A: Programar (confirma el nº de destinatarios si supera 500)
+  A->>DB: CAS DRAFT→SCHEDULED, version+1, contenido congelado
+  A->>D: dispatch-{id}-{version} (con retraso si es programada)
+  D->>W: DispatchCampaign
+  W->>DB: compila una vez, reescribe enlaces (campaign_links)
+  loop lotes de 1.000 contactos (cursor)
+    W->>DB: INSERT deliveries ON CONFLICT DO NOTHING
+    W->>E: delivery-{id}
+  end
+  E->>W: SendDelivery
+  W->>T: hueco GCRA del proveedor + cupos
+  alt sin hueco
+    W->>E: moveToDelayed (sin gastar intento)
+  else con hueco
+    W->>DB: CAS QUEUED→SENDING
+    W->>W: personaliza (Liquid) + URL firmadas de seguimiento
+    W->>P: send (Message-ID determinista)
+    W->>DB: SENT + evento
+  end
+```
+
+Claves del diseño (detalle en el [ADR 0008](adr/0008-sending-pipeline.md)):
+
+- **Exactamente una entrega por contacto** gracias a la clave única `(campaign_id, contact_id)` y a las transiciones CAS. Un despacho repetido o reanudado no duplica nada.
+- **Audiencia en SQL** (`SqlAudienceResolver`):
+  - suma de listas y segmentos, con contactos únicos;
+  - excluye las listas excluidas, los contactos no activos, las supresiones del tenant y las bajas del tema de la campaña.
+- **Supresión comprobada dos veces:** al despachar y justo antes de enviar. Una baja recibida durante el envío se respeta.
+- **Pausa, reanudación y cancelación:** las entregas pendientes se quedan en `QUEUED` y el worker las ignora mientras la campaña no esté en `SENDING`.
+- **Circuit breaker:** un error de autenticación o configuración marca el proveedor con `ERROR` y pausa sus campañas.
+- **Proveedores** (patrón Strategy, `EmailProviderFactory`):
+  - `SmtpEmailProvider` (nodemailer, con protección SSRF);
+  - `GraphEmailProvider` (Microsoft 365, MIME en base64);
+  - `ResendEmailProvider` (`Idempotency-Key`);
+  - `SesEmailProvider` (SES v2, _raw_).
+- **Caché de clientes:** `CachingEmailProviderGateway` los cachea por `configVersion`.
+- **Barridos de mantenimiento:** cada 15 s se lanzan las campañas programadas vencidas. Cada 60 s se cierran las terminadas y se recuperan las entregas en `SENDING` de más de 10 minutos.
+
+## 11. Seguimiento, bajas y webhooks
+
+```mermaid
+sequenceDiagram
+  participant C as Cliente de correo
+  participant T as /trk (app)
+  participant DB as PostgreSQL
+  participant P as Proveedor (Resend / SES)
+  participant H as /api/webhooks/email/{token}
+  participant Q as Cola provider-events
+  participant W as Worker
+  C->>T: GET /trk/o/{token} (píxel)
+  T->>DB: OPENED (o apertura automática)
+  C->>T: GET /trk/c/{token}
+  T->>DB: CLICKED (+ DOWNLOADED si es un documento)
+  T-->>C: 302 a la URL guardada
+  C->>T: POST /trk/u/{token} (RFC 8058)
+  T->>DB: baja del tema o supresión global
+  P->>H: evento firmado (Svix / SNS)
+  H->>H: verifica firma
+  H->>DB: inbound_webhook_events (único por evento)
+  H->>Q: event-{id}
+  H-->>P: 200
+  Q->>W: ApplyProviderEvent
+  W->>DB: estado monótono + supresión si rebote permanente o queja
+```
+
+- **URL firmadas:** HMAC-SHA256 con un dominio propio (`mcsn-track-v1`) y un propósito por tipo de enlace. La carga solo lleva identificadores, nunca el email ni la URL de destino.
+- **Rutas fuera del idioma:** las rutas `/trk/*` y `/api/*` quedan fuera de `[locale]` y del matcher de `proxy.ts`, para que respondan rápido y sin cookies.
+- **Centro de preferencias** (`/{locale}/preferences/{token}`):
+  - página pública que muestra el email enmascarado;
+  - permite elegir temas o darse de baja de todo, con una Server Action validada con Zod.
+- **Detalle de las decisiones:** [ADR 0009](adr/0009-tracking-unsubscribe-webhooks.md).
+
+## 12. Correo del sistema
+
+Las invitaciones y la recuperación de contraseña no dependen de los proveedores de los tenants.
+
+- **Envío:** la Server Action encola en `system-mail` y el worker envía por `SYSTEM_MAIL_SMTP_URL` con `SmtpSystemMailer`.
+- **Plantillas:** propias en español e inglés, con los datos escapados.
+- **Recuperación de contraseña:**
+  - el token es aleatorio y se guarda solo su hash, en `verification_tokens` con identificador `password-reset:{userId}`;
+  - caduca en una hora, es de un solo uso (borrado atómico) y una solicitud nueva invalida la anterior;
+  - la respuesta es siempre neutra, para no revelar si la cuenta existe.
+  - al cambiar la contraseña, `sessionVersion` se incrementa y se cierran las sesiones abiertas.
+
+## 13. Diseño de la UI
 
 - **Atomic Design:**
   - `atoms`: `BrandLogo`, `StatusChip`, `ColorSwatch` (SVG, sin estilos en línea).
   - `molecules`: `PageHeader`, `StatCard`, `ConfirmDialog`, `CopyField`, `LinkButton`, `EmptyState`, `ThemeToggle`, `LocaleSwitcher`, `FileDropzone`, `EmailPreviewFrame`.
-  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, etc.
+  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, `ProvidersManager`, `SendersManager`, `CampaignsTable`, `CampaignEditor` (Stepper de 5 pasos), `CampaignReport` (DataGrid con paginación en servidor), `ActivityChart` (MUI X Charts con tabla alternativa accesible), `PreferencesForm`, `PasswordResetForms`, etc.
 - **Server Components** cargan los datos; los componentes cliente solo reciben datos serializables y llaman a Server Actions.
 - **Tailwind y MUI conviven** mediante capas CSS (`@layer theme, base, mui, components, utilities`). Las variables CSS que genera MUI (prefijo `--mc-`) se exponen como colores de Tailwind (`bg-primary`, `text-ink-muted`...), con una sola fuente de verdad en [src/common/theme/tokens.ts](../src/common/theme/tokens.ts).
 - **Modo oscuro** por clase en `<html>`, compartido por MUI y Tailwind, sin parpadeo inicial.

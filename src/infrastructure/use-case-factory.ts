@@ -42,6 +42,30 @@ import {
   RevokeInvitationUseCase,
 } from '@/core/identity/use-cases/manage-members.use-case';
 import {
+  ManageCampaignsUseCase,
+  type CampaignUseCaseDeps,
+} from '@/core/campaigns/use-cases/campaigns.use-cases';
+import {
+  CampaignMaintenanceUseCase,
+  DispatchCampaignUseCase,
+  SendDeliveryUseCase,
+} from '@/core/campaigns/use-cases/dispatch.use-cases';
+import {
+  ApplyProviderEventUseCase,
+  IngestProviderWebhookUseCase,
+} from '@/core/campaigns/use-cases/provider-events.use-cases';
+import { TrackingUseCase } from '@/core/campaigns/use-cases/tracking.use-cases';
+import {
+  RequestPasswordResetUseCase,
+  ResetPasswordUseCase,
+} from '@/core/identity/use-cases/password-reset.use-cases';
+import {
+  ManageProvidersUseCase,
+  ManageSendersUseCase,
+  type ProviderUseCaseDeps,
+} from '@/core/providers/use-cases/providers.use-cases';
+import { EmailComposer } from '@/core/templates/email-composer';
+import {
   ManageDocumentsUseCase,
   ProcessDocumentUseCase,
   UploadDocumentUseCase,
@@ -63,7 +87,18 @@ import {
   UpdateTenantSettingsUseCase,
 } from '@/core/tenants/use-cases';
 import {
+  getCampaignQueue,
   getContactImportQueue,
+  getDnsChecker,
+  getEmailInstrumenter,
+  getEmailProviderFactory,
+  getEmailProviderGateway,
+  getProviderEventQueue,
+  getSecretCipher,
+  getSendThrottle,
+  getSystemMailQueue,
+  getTrackingLinks,
+  getWebhookParser,
   getDocumentConverter,
   getDocumentQueue,
   getEmailCompiler,
@@ -96,7 +131,19 @@ import {
   PrismaTagRepository,
   PrismaTopicRepository,
 } from './persistence/prisma/repositories/audience.prisma-repositories';
+import { SqlAudienceResolver } from './persistence/prisma/repositories/audience.sql-resolver';
+import { PrismaCampaignRepository } from './persistence/prisma/repositories/campaign.prisma-repository';
 import { PrismaContactRepository } from './persistence/prisma/repositories/contact.prisma-repository';
+import { PrismaDeliveryRepository } from './persistence/prisma/repositories/delivery.prisma-repository';
+import {
+  PrismaInboundEventRepository,
+  PrismaPasswordResetTokenRepository,
+  PrismaRecipientPreferencesRepository,
+} from './persistence/prisma/repositories/engagement.prisma-repositories';
+import {
+  PrismaProviderConfigRepository,
+  PrismaSenderRepository,
+} from './persistence/prisma/repositories/provider.prisma-repositories';
 import { PrismaDocumentRepository } from './persistence/prisma/repositories/document.prisma-repository';
 import {
   PrismaInvitationRepository,
@@ -133,6 +180,32 @@ const repositories = {
     memoize('repo.templates', () => new PrismaTemplateRepository(getPrisma(), getTenantClients())),
   documents: () =>
     memoize('repo.documents', () => new PrismaDocumentRepository(getTenantClients())),
+  providers: () =>
+    memoize(
+      'repo.providers',
+      () => new PrismaProviderConfigRepository(getPrisma(), getTenantClients()),
+    ),
+  senders: () => memoize('repo.senders', () => new PrismaSenderRepository(getTenantClients())),
+  campaigns: () =>
+    memoize('repo.campaigns', () => new PrismaCampaignRepository(getPrisma(), getTenantClients())),
+  deliveries: () =>
+    memoize('repo.deliveries', () => new PrismaDeliveryRepository(getPrisma(), getTenantClients())),
+  audience: () =>
+    memoize(
+      'repo.audience',
+      () =>
+        new SqlAudienceResolver(
+          getPrisma(),
+          new PrismaSegmentRepository(getTenantClients()),
+          new PrismaContactFieldRepository(getTenantClients()),
+        ),
+    ),
+  preferences: () =>
+    memoize('repo.preferences', () => new PrismaRecipientPreferencesRepository(getTenantClients())),
+  inboundEvents: () =>
+    memoize('repo.inboundEvents', () => new PrismaInboundEventRepository(getTenantClients())),
+  passwordResets: () =>
+    memoize('repo.passwordResets', () => new PrismaPasswordResetTokenRepository(getPrisma())),
 };
 
 const services = {
@@ -194,6 +267,55 @@ function templateDeps(): TemplateUseCaseDeps {
     branding: repositories.tenants(),
     assets: getPublicAssetLinks(),
     compiler: getEmailCompiler(),
+    audit: repositories.audit(),
+    clock: systemClock,
+  };
+}
+
+function emailComposer(): EmailComposer {
+  return memoize(
+    'svc.emailComposer',
+    () =>
+      new EmailComposer({
+        branding: repositories.tenants(),
+        fields: repositories.fields(),
+        documents: repositories.documents(),
+        assets: getPublicAssetLinks(),
+        compiler: getEmailCompiler(),
+      }),
+  );
+}
+
+function providerDeps(): ProviderUseCaseDeps {
+  return {
+    providers: repositories.providers(),
+    senders: repositories.senders(),
+    cipher: getSecretCipher(),
+    factory: getEmailProviderFactory(),
+    dns: getDnsChecker(),
+    tokens: services.tokens(),
+    audit: repositories.audit(),
+    clock: systemClock,
+    ids: cryptoIdGenerator,
+  };
+}
+
+function campaignDeps(): CampaignUseCaseDeps {
+  return {
+    campaigns: repositories.campaigns(),
+    deliveries: repositories.deliveries(),
+    audience: repositories.audience(),
+    queue: getCampaignQueue(),
+    templates: repositories.templates(),
+    senders: repositories.senders(),
+    providers: repositories.providers(),
+    gateway: getEmailProviderGateway(),
+    composer: emailComposer(),
+    compiler: getEmailCompiler(),
+    contacts: repositories.contacts(),
+    lists: repositories.lists(),
+    segments: repositories.segments(),
+    topics: repositories.topics(),
     audit: repositories.audit(),
     clock: systemClock,
   };
@@ -380,6 +502,116 @@ export const useCases = {
           assets: getPublicAssetLinks(),
           audit: repositories.audit(),
           ids: cryptoIdGenerator,
+        }),
+    ),
+
+  // Proveedores, remitentes y campañas
+  providers: () => memoize('uc.providers', () => new ManageProvidersUseCase(providerDeps())),
+  senders: () => memoize('uc.senders', () => new ManageSendersUseCase(providerDeps())),
+  campaigns: () => memoize('uc.campaigns', () => new ManageCampaignsUseCase(campaignDeps())),
+  dispatchCampaign: () =>
+    memoize(
+      'uc.dispatchCampaign',
+      () =>
+        new DispatchCampaignUseCase({
+          campaigns: repositories.campaigns(),
+          deliveries: repositories.deliveries(),
+          audience: repositories.audience(),
+          queue: getCampaignQueue(),
+          senders: repositories.senders(),
+          composer: emailComposer(),
+          instrumenter: getEmailInstrumenter(),
+          clock: systemClock,
+        }),
+    ),
+  sendDelivery: () =>
+    memoize(
+      'uc.sendDelivery',
+      () =>
+        new SendDeliveryUseCase({
+          campaigns: repositories.campaigns(),
+          deliveries: repositories.deliveries(),
+          senders: repositories.senders(),
+          providers: repositories.providers(),
+          gateway: getEmailProviderGateway(),
+          throttle: getSendThrottle(),
+          links: getTrackingLinks(),
+          compiler: getEmailCompiler(),
+          branding: repositories.tenants(),
+          preferences: repositories.preferences(),
+          clock: systemClock,
+        }),
+    ),
+  campaignMaintenance: () =>
+    memoize(
+      'uc.campaignMaintenance',
+      () =>
+        new CampaignMaintenanceUseCase({
+          campaigns: repositories.campaigns(),
+          deliveries: repositories.deliveries(),
+          queue: getCampaignQueue(),
+          clock: systemClock,
+        }),
+    ),
+  tracking: () =>
+    memoize(
+      'uc.tracking',
+      () =>
+        new TrackingUseCase({
+          campaigns: repositories.campaigns(),
+          deliveries: repositories.deliveries(),
+          preferences: repositories.preferences(),
+          links: getTrackingLinks(),
+          branding: repositories.tenants(),
+          clock: systemClock,
+        }),
+    ),
+  ingestWebhook: () =>
+    memoize(
+      'uc.ingestWebhook',
+      () =>
+        new IngestProviderWebhookUseCase({
+          providers: repositories.providers(),
+          cipher: getSecretCipher(),
+          parser: getWebhookParser(),
+          events: repositories.inboundEvents(),
+          queue: getProviderEventQueue(),
+        }),
+    ),
+  applyProviderEvent: () =>
+    memoize(
+      'uc.applyProviderEvent',
+      () =>
+        new ApplyProviderEventUseCase({
+          events: repositories.inboundEvents(),
+          deliveries: repositories.deliveries(),
+          preferences: repositories.preferences(),
+          clock: systemClock,
+        }),
+    ),
+  requestPasswordReset: () =>
+    memoize(
+      'uc.requestPasswordReset',
+      () =>
+        new RequestPasswordResetUseCase({
+          users: repositories.users(),
+          resets: repositories.passwordResets(),
+          tokens: services.tokens(),
+          mail: getSystemMailQueue(),
+          clock: systemClock,
+        }),
+    ),
+  resetPassword: () =>
+    memoize(
+      'uc.resetPassword',
+      () =>
+        new ResetPasswordUseCase({
+          users: repositories.users(),
+          resets: repositories.passwordResets(),
+          tokens: services.tokens(),
+          hasher: services.hasher(),
+          audit: repositories.audit(),
+          clock: systemClock,
         }),
     ),
 

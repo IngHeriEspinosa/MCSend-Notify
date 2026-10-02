@@ -24,6 +24,11 @@ export const PERMISSIONS = [
   'template:write',
   'document:read',
   'document:write',
+  'campaign:read',
+  'campaign:write',
+  'campaign:send',
+  'provider:manage',
+  'sender:manage',
   'apikey:manage',
   'audit:read',
 ] as const;
@@ -42,6 +47,9 @@ const EDITOR_PERMISSIONS: readonly Permission[] = [
   'template:write',
   'document:read',
   'document:write',
+  'campaign:read',
+  'campaign:write',
+  'campaign:send',
 ];
 
 const VIEWER_PERMISSIONS: readonly Permission[] = [
@@ -50,6 +58,7 @@ const VIEWER_PERMISSIONS: readonly Permission[] = [
   'contact:read',
   'template:read',
   'document:read',
+  'campaign:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<MembershipRole, ReadonlySet<Permission>> = {

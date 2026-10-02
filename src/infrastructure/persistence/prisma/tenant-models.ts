@@ -22,6 +22,13 @@ export const TENANT_MODEL_RELATIONS = {
   Template: ['tenant', 'versions'],
   TemplateVersion: ['template'],
   Document: ['tenant'],
+  EmailProviderConfig: ['tenant', 'senders'],
+  SenderIdentity: ['tenant', 'provider', 'campaigns'],
+  Campaign: ['tenant', 'sender', 'deliveries', 'links'],
+  CampaignLink: ['campaign'],
+  Delivery: ['campaign', 'events'],
+  DeliveryEvent: ['delivery'],
+  InboundWebhookEvent: [],
 } as const satisfies Record<string, readonly string[]>;
 
 export type TenantModelName = keyof typeof TENANT_MODEL_RELATIONS;

@@ -8,6 +8,7 @@
  * - `getServerEnv()`: variables comunes a la app y al worker.
  * - `getAuthEnv()`: variables de autenticación, solo para la app web.
  * - `getSigningEnv()`: secreto de las URL públicas firmadas (miniaturas, descargas, tracking).
+ * - `getEncryptionEnv()`: claves AES-256-GCM de los secretos en reposo (credenciales de proveedores).
  */
 import { z } from 'zod';
 
@@ -34,8 +35,23 @@ export const serverEnvSchema = z
     S3_SECRET_ACCESS_KEY: z.string().min(8),
     S3_FORCE_PATH_STYLE: z.stringbool().default(true),
     WORKER_HEALTH_PORT: z.coerce.number().int().min(1).max(65535).default(9464),
+    /** Envíos simultáneos por proceso worker (los límites por proveedor se aplican aparte). */
+    EMAIL_SEND_CONCURRENCY: z.coerce.number().int().min(1).max(200).default(20),
     /** Carpeta de los binarios de poppler (pdfinfo, pdftoppm, pdftotext); vacío = PATH. */
     POPPLER_BIN_DIR: optionalString,
+    /**
+     * Permite conectar con hosts privados (SMTP, webhooks). Solo para desarrollo con Mailpit en la
+     * red de Docker; en producción debe quedar en false (protección SSRF).
+     */
+    SSRF_ALLOW_PRIVATE: z.stringbool().default(false),
+    SYSTEM_MAIL_SMTP_URL: z.preprocess(
+      emptyToUndefined,
+      z
+        .string()
+        .regex(/^smtps?:\/\//, 'Debe ser una URL smtp:// o smtps://')
+        .optional(),
+    ),
+    SYSTEM_MAIL_FROM: z.string().min(3).default('MC Send Notify <noreply@mcsend.local>'),
     MCLOG_URL: z.preprocess(emptyToUndefined, z.url().optional()),
     MCLOG_API_KEY: optionalString,
     MCLOG_APPLICATION: z.string().min(1).default('mc-send-notify'),
@@ -96,6 +112,40 @@ export const signingEnvSchema = z.object({
 
 export type SigningEnv = z.infer<typeof signingEnvSchema>;
 
+/** `ENCRYPTION_KEYS="k1:base64,k2:base64"`: cada clave debe tener 32 bytes (AES-256). */
+export const encryptionEnvSchema = z
+  .object({
+    ENCRYPTION_KEYS: z.string().min(1),
+    ENCRYPTION_ACTIVE_KEY_ID: z.string().regex(/^[A-Za-z0-9_-]{1,16}$/),
+  })
+  .transform((env, ctx) => {
+    const keys = new Map<string, Buffer>();
+    for (const entry of env.ENCRYPTION_KEYS.split(',')) {
+      const [id, value] = entry.trim().split(':');
+      const key = value ? Buffer.from(value, 'base64') : Buffer.alloc(0);
+      if (!id || !/^[A-Za-z0-9_-]{1,16}$/.test(id) || key.length !== 32) {
+        ctx.addIssue({
+          code: 'custom',
+          path: ['ENCRYPTION_KEYS'],
+          message: 'Formato id:base64 con claves de 32 bytes (ejecuta pnpm setup)',
+        });
+        return z.NEVER;
+      }
+      keys.set(id, key);
+    }
+    if (!keys.has(env.ENCRYPTION_ACTIVE_KEY_ID)) {
+      ctx.addIssue({
+        code: 'custom',
+        path: ['ENCRYPTION_ACTIVE_KEY_ID'],
+        message: 'La clave activa no está en ENCRYPTION_KEYS',
+      });
+      return z.NEVER;
+    }
+    return { keys, activeKeyId: env.ENCRYPTION_ACTIVE_KEY_ID };
+  });
+
+export type EncryptionEnv = z.infer<typeof encryptionEnvSchema>;
+
 export class InvalidEnvironmentError extends Error {
   constructor(details: string) {
     super(`Configuración de entorno inválida:\n${details}`);
@@ -130,6 +180,11 @@ export function parseSigningEnv(source: Record<string, string | undefined>): Sig
 let cachedEnv: ServerEnv | undefined;
 let cachedAuthEnv: AuthEnv | undefined;
 let cachedSigningEnv: SigningEnv | undefined;
+let cachedEncryptionEnv: EncryptionEnv | undefined;
+
+export function parseEncryptionEnv(source: Record<string, string | undefined>): EncryptionEnv {
+  return parseWith(encryptionEnvSchema, source);
+}
 
 /** Devuelve las variables validadas del proceso actual (memoizadas). */
 export function getServerEnv(): ServerEnv {
@@ -145,4 +200,9 @@ export function getAuthEnv(): AuthEnv {
 export function getSigningEnv(): SigningEnv {
   cachedSigningEnv ??= parseSigningEnv(process.env);
   return cachedSigningEnv;
+}
+
+export function getEncryptionEnv(): EncryptionEnv {
+  cachedEncryptionEnv ??= parseEncryptionEnv(process.env);
+  return cachedEncryptionEnv;
 }

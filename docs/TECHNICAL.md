@@ -4,15 +4,18 @@ Autor: **Ing. Heri Espinosa**
 
 ## 1. Decisiones de arquitectura
 
-| ADR                                            | Decisión                                                                                   |
-| ---------------------------------------------- | ------------------------------------------------------------------------------------------ |
-| [0001](adr/0001-single-project-with-worker.md) | Proyecto único de Next.js con el worker en `src/worker`, sin monorepo                      |
-| [0002](adr/0002-inline-css-in-emails.md)       | El HTML de los correos usa CSS en línea; la regla "sin estilos inline" aplica solo a la UI |
-| [0003](adr/0003-seaweedfs-object-storage.md)   | SeaweedFS sustituye a MinIO como almacenamiento S3 compatible                              |
-| [0004](adr/0004-authentication.md)             | Auth.js v5 con credenciales (argon2id) y Microsoft Entra ID, sesión JWT revocable          |
-| [0005](adr/0005-tenant-isolation.md)           | Aislamiento multi-tenant en tres capas: dominio, extensión de Prisma y tests de guardia    |
-| [0006](adr/0006-email-rendering.md)            | Correos con layout propio, LiquidJS restringido, markdown-it, sanitize-html y juice        |
-| [0007](adr/0007-document-processing.md)        | Documentos con Gotenberg, poppler y sharp; URL públicas firmadas con HMAC                  |
+| ADR                                               | Decisión                                                                                   |
+| ------------------------------------------------- | ------------------------------------------------------------------------------------------ |
+| [0001](adr/0001-single-project-with-worker.md)    | Proyecto único de Next.js con el worker en `src/worker`, sin monorepo                      |
+| [0002](adr/0002-inline-css-in-emails.md)          | El HTML de los correos usa CSS en línea; la regla "sin estilos inline" aplica solo a la UI |
+| [0003](adr/0003-seaweedfs-object-storage.md)      | SeaweedFS sustituye a MinIO como almacenamiento S3 compatible                              |
+| [0004](adr/0004-authentication.md)                | Auth.js v5 con credenciales (argon2id) y Microsoft Entra ID, sesión JWT revocable          |
+| [0005](adr/0005-tenant-isolation.md)              | Aislamiento multi-tenant en tres capas: dominio, extensión de Prisma y tests de guardia    |
+| [0006](adr/0006-email-rendering.md)               | Correos con layout propio, LiquidJS restringido, markdown-it, sanitize-html y juice        |
+| [0007](adr/0007-document-processing.md)           | Documentos con Gotenberg, poppler y sharp; URL públicas firmadas con HMAC                  |
+| [0008](adr/0008-sending-pipeline.md)              | Cola de envío única con ritmo GCRA y cupos en Redis; idempotencia en la base de datos      |
+| [0009](adr/0009-tracking-unsubscribe-webhooks.md) | Seguimiento propio firmado, baja en un clic (RFC 8058) y webhooks Resend/SES verificados   |
+| [0010](adr/0010-secrets-encryption.md)            | Credenciales de proveedores cifradas con AES-256-GCM, AAD por fila y rotación de claves    |
 
 Otras decisiones de la Fase 0:
 
@@ -39,25 +42,41 @@ Decisiones de la Fase 2:
 - **URL públicas firmadas sin caducidad** para miniaturas, descargas y logotipo, porque los correos se abren meses después.
 - **`isDomainError` con marca global (`Symbol.for`):** los casos de uso memoizados en `globalThis` se comparten entre capas de Next.js que cargan copias distintas del módulo, y `instanceof` fallaba entre copias.
 
+Decisiones de la Fase 3:
+
+- **Una sola cola de envío** (`email-send`) en lugar de una cola por proveedor. Los límites viven en Redis y se combinan: ritmo por segundo (GCRA), cupo diario y límite por hora de la campaña (ADR 0008).
+- **Estadísticas por SQL** agregado sobre `deliveries` y `delivery_events`, sin contadores en Redis ni tabla de agregados (YAGNI). El informe se refresca por _polling_ cada 5 s, sin SSE.
+- **Prueba A/B de asunto** con reparto determinista 50/50 por contacto. El informe compara aperturas y clics por variante; no elige ganador automático.
+- **Comprobación DNS (SPF, DKIM, DMARC) como aviso**, no como bloqueo: muchos dominios corporativos delegan DKIM en el proveedor con selectores que no se pueden adivinar.
+- **Documentos como enlace con miniatura**, sin adjuntos reales (modo `ATTACH` del plan). Así los correos son ligeros y las descargas quedan registradas.
+- **Proveedores SMTP con protección SSRF:** el host se resuelve, se rechazan las IP privadas (salvo `SSRF_ALLOW_PRIVATE=true` en desarrollo) y se conecta a la IP resuelta con `servername` TLS, contra el _DNS rebinding_.
+- **Microsoft Graph y Resend por `fetch`**, sin SDK. Graph envía el MIME completo en base64 para conservar `List-Unsubscribe` y `Message-ID`; Resend recibe `Idempotency-Key`. SES usa `@aws-sdk/client-sesv2` con mensaje _raw_.
+- **Correo del sistema** (invitaciones y recuperación de contraseña) por un SMTP de plataforma (`SYSTEM_MAIL_SMTP_URL`), independiente de los proveedores de los tenants.
+- **Sin estado `PENDING_APPROVAL`** en las campañas: la aprobación llega con las automatizaciones de IA (Fase 4).
+
 ## 2. Variables de entorno
 
 [src/common/config/env.ts](../src/common/config/env.ts) valida las variables con Zod. Lo hace de forma perezosa: la app las valida al arrancar desde `instrumentation.ts` y el worker en su bootstrap. Una configuración inválida detiene el proceso con un mensaje que nombra la variable.
 
-| Variable                                                               | Obligatoria                  | Descripción                                                             |
-| ---------------------------------------------------------------------- | ---------------------------- | ----------------------------------------------------------------------- |
-| `NODE_ENV`                                                             | No (`development`)           | Modo de ejecución                                                       |
-| `APP_ENV`                                                              | No (`development`)           | `development`, `staging` o `production`; también es el entorno en MCLog |
-| `APP_URL`                                                              | No (`http://localhost:3020`) | URL pública de la app                                                   |
-| `LOG_LEVEL`                                                            | No (`info`)                  | Nivel mínimo de log                                                     |
-| `DATABASE_URL`                                                         | Sí                           | URL de PostgreSQL                                                       |
-| `REDIS_URL`                                                            | Sí                           | URL de Redis, con contraseña                                            |
-| `GOTENBERG_URL`                                                        | Sí                           | URL del servicio de conversión                                          |
-| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Sí                           | Almacenamiento S3 compatible                                            |
-| `S3_REGION`, `S3_FORCE_PATH_STYLE`                                     | No (`us-east-1`, `true`)     | Ajustes del cliente S3                                                  |
-| `WORKER_HEALTH_PORT`                                                   | No (`9464`)                  | Puerto del servidor de salud del worker                                 |
-| `POPPLER_BIN_DIR`                                                      | No (PATH)                    | Carpeta de `pdfinfo`, `pdftoppm` y `pdftotext` (worker fuera de Docker) |
-| `MCLOG_URL` y `MCLOG_API_KEY`                                          | No (juntas)                  | Envío de logs `warn` o superiores a MCLog                               |
-| `MCLOG_APPLICATION`                                                    | No (`mc-send-notify`)        | Nombre de aplicación en MCLog                                           |
+| Variable                                                               | Obligatoria                  | Descripción                                                                                |
+| ---------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------ |
+| `NODE_ENV`                                                             | No (`development`)           | Modo de ejecución                                                                          |
+| `APP_ENV`                                                              | No (`development`)           | `development`, `staging` o `production`; también es el entorno en MCLog                    |
+| `APP_URL`                                                              | No (`http://localhost:3020`) | URL pública de la app                                                                      |
+| `LOG_LEVEL`                                                            | No (`info`)                  | Nivel mínimo de log                                                                        |
+| `DATABASE_URL`                                                         | Sí                           | URL de PostgreSQL                                                                          |
+| `REDIS_URL`                                                            | Sí                           | URL de Redis, con contraseña                                                               |
+| `GOTENBERG_URL`                                                        | Sí                           | URL del servicio de conversión                                                             |
+| `S3_ENDPOINT`, `S3_BUCKET`, `S3_ACCESS_KEY_ID`, `S3_SECRET_ACCESS_KEY` | Sí                           | Almacenamiento S3 compatible                                                               |
+| `S3_REGION`, `S3_FORCE_PATH_STYLE`                                     | No (`us-east-1`, `true`)     | Ajustes del cliente S3                                                                     |
+| `WORKER_HEALTH_PORT`                                                   | No (`9464`)                  | Puerto del servidor de salud del worker                                                    |
+| `POPPLER_BIN_DIR`                                                      | No (PATH)                    | Carpeta de `pdfinfo`, `pdftoppm` y `pdftotext` (worker fuera de Docker)                    |
+| `EMAIL_SEND_CONCURRENCY`                                               | No (`20`)                    | Envíos simultáneos por réplica del worker                                                  |
+| `SSRF_ALLOW_PRIVATE`                                                   | No (`false`)                 | Permite hosts SMTP en redes privadas (solo desarrollo, para Mailpit)                       |
+| `SYSTEM_MAIL_SMTP_URL`                                                 | No                           | SMTP de plataforma (`smtp://` o `smtps://`) para invitaciones y recuperación de contraseña |
+| `SYSTEM_MAIL_FROM`                                                     | No                           | Remitente del correo del sistema                                                           |
+| `MCLOG_URL` y `MCLOG_API_KEY`                                          | No (juntas)                  | Envío de logs `warn` o superiores a MCLog                                                  |
+| `MCLOG_APPLICATION`                                                    | No (`mc-send-notify`)        | Nombre de aplicación en MCLog                                                              |
 
 Variables de autenticación (solo la app web, `getAuthEnv()`):
 
@@ -70,9 +89,18 @@ Variables de autenticación (solo la app web, `getAuthEnv()`):
 
 Variables de firma (`getSigningEnv()`, app y worker):
 
-| Variable                  | Obligatoria          | Descripción                                                             |
-| ------------------------- | -------------------- | ----------------------------------------------------------------------- |
-| `TRACKING_SIGNING_SECRET` | Sí (≥ 32 caracteres) | HMAC de las URL públicas de miniaturas, descargas y logotipo (`/trk/*`) |
+| Variable                  | Obligatoria          | Descripción                                                                                          |
+| ------------------------- | -------------------- | ---------------------------------------------------------------------------------------------------- |
+| `TRACKING_SIGNING_SECRET` | Sí (≥ 32 caracteres) | HMAC de las URL públicas de miniaturas, descargas y logotipo, y de las URL de seguimiento (`/trk/*`) |
+
+Variables de cifrado (`getEncryptionEnv()`, app y worker):
+
+| Variable                   | Obligatoria | Descripción                                                        |
+| -------------------------- | ----------- | ------------------------------------------------------------------ |
+| `ENCRYPTION_KEYS`          | Sí          | Claves AES-256 `id:base64` separadas por comas (32 bytes cada una) |
+| `ENCRYPTION_ACTIVE_KEY_ID` | Sí          | Id. de la clave con la que se cifra; las demás solo descifran      |
+
+Sin `SYSTEM_MAIL_SMTP_URL`, las invitaciones siguen funcionando con el enlace de un solo uso y los correos del sistema (invitación y recuperación de contraseña) no se envían: el job `system-mail` falla y queda registrado en el log del worker.
 
 Debe haber al menos un método de inicio de sesión activo. `.env.example` documenta además las variables de fases posteriores (cifrado, tracking, correo del sistema e IA) y las del seed (`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`). `pnpm setup` genera los secretos con `crypto.randomBytes`, completa un `.env` existente con las variables nuevas y nunca imprime los valores.
 
@@ -94,6 +122,15 @@ erDiagram
   TENANT ||--o{ TEMPLATE : tiene
   TEMPLATE ||--o{ TEMPLATE_VERSION : versiona
   TENANT ||--o{ DOCUMENT : tiene
+  TENANT ||--o{ EMAIL_PROVIDER_CONFIG : configura
+  EMAIL_PROVIDER_CONFIG ||--o{ SENDER_IDENTITY : envía
+  TENANT ||--o{ CAMPAIGN : tiene
+  SENDER_IDENTITY ||--o{ CAMPAIGN : firma
+  CAMPAIGN ||--o{ CAMPAIGN_LINK : reescribe
+  CAMPAIGN ||--o{ DELIVERY : genera
+  CONTACT ||--o{ DELIVERY : recibe
+  DELIVERY ||--o{ DELIVERY_EVENT : registra
+  EMAIL_PROVIDER_CONFIG ||--o{ INBOUND_WEBHOOK_EVENT : recibe
   CONTACT ||--o{ LIST_MEMBERSHIP : pertenece
   CONTACT_LIST ||--o{ LIST_MEMBERSHIP : contiene
   CONTACT ||--o{ CONTACT_TAG : tiene
@@ -133,6 +170,24 @@ erDiagram
     int pageCount
     text extractedText "máx. 200 KB"
   }
+  EMAIL_PROVIDER_CONFIG {
+    enum kind "SMTP | MICROSOFT_GRAPH | RESEND | SES"
+    string credentialsEnc "AES-256-GCM con AAD por fila"
+    string endpointToken "único, URL de webhooks"
+    float rateLimitPerSecond "admite decimales (0,5 = 30/min)"
+    int configVersion
+  }
+  CAMPAIGN {
+    enum status "DRAFT | SCHEDULED | DISPATCHING | SENDING | PAUSED | SENT | CANCELLED | FAILED"
+    json audience "listas, segmentos y exclusiones"
+    text compiledHtml "congelado al programar"
+    int version "concurrencia optimista"
+  }
+  DELIVERY {
+    enum status "QUEUED | SENDING | SENT | DELIVERED | BOUNCED | COMPLAINED | FAILED | SUPPRESSED | CANCELLED"
+    string providerMessageId
+    string variant "A | B"
+  }
   AUDIT_LOG {
     uuid tenantId "sin FK: sobrevive a las entidades"
     string action
@@ -148,6 +203,16 @@ Tablas añadidas en la Fase 1:
 
 Un trigger impide `UPDATE` y `DELETE` en `audit_logs`.
 
+Tablas añadidas en la Fase 3:
+
+- `email_provider_configs`: tipo, ajustes sin secretos, `credentials_enc` (AES-GCM), `endpoint_token` único para webhooks, límites (`rate_limit_per_second` en `double precision` para ritmos como 0,5/s), estado y `config_version`;
+- `sender_identities`: remitente, proveedor (`onDelete: Restrict`) y resultado de la comprobación DNS;
+- `campaigns`: estado, cuerpo congelado, HTML y texto compilados, audiencia, programación, límite por hora, cursor de despacho y `version` para la concurrencia optimista;
+- `campaign_links`: URL reescritas, únicas por campaña y posición;
+- `deliveries`: única por `(campaign_id, contact_id)`, con estado de transporte, `provider_message_id`, contadores de apertura y clic;
+- `delivery_events`: apertura, clic, descarga, baja, entrega, rebote y queja, con `is_bot` e IP hasheada;
+- `inbound_webhook_events`: única por `(provider_config_id, provider_event_id)` para deduplicar reenvíos.
+
 Tablas añadidas en la Fase 2: `templates`, `template_versions` (un trigger impide `UPDATE`) y `documents`. El branding de cada tenant se guarda en `tenants.branding` (JSON leído con `parseBranding` y validado al guardar con `updateBrandingSchema`).
 
 Convenciones del modelo:
@@ -161,11 +226,11 @@ El cliente Prisma se genera en `src/infrastructure/persistence/prisma/generated`
 
 ## 4. Servicios y salud
 
-| Endpoint                    | Tipo                 | Respuesta                                                                                                      |
-| --------------------------- | -------------------- | -------------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`           | Liveness             | `200` si el proceso web responde                                                                               |
-| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas                                                                  |
-| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers (`maintenance`, `contact-import`, `document-process`) corren |
+| Endpoint                    | Tipo                 | Respuesta                                                                                                                                                                           |
+| --------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`           | Liveness             | `200` si el proceso web responde                                                                                                                                                    |
+| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas                                                                                                                                       |
+| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers (`maintenance`, `contact-import`, `document-process`, `campaign-dispatch`, `email-send`, `provider-events`, `system-mail`) corren |
 
 La readiness distingue dos tipos de dependencias:
 
@@ -188,30 +253,37 @@ La respuesta pública solo indica `up` o `down`. El detalle del error va a los l
 
 ## 6. Seguridad (OWASP)
 
-| Control                 | Implementación                                                                                                                                  |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- |
-| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción        |
-| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                      |
-| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                    |
-| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                       |
-| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                 |
-| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                              |
-| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                 |
-| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`               |
-| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants              |
-| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                   |
-| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                   |
-| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                   |
-| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados               |
-| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas   |
-| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                     |
-| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                 |
-| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea   |
-| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox` |
-| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp           |
-| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                              |
-| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                    |
-| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                          |
+| Control                 | Implementación                                                                                                                                      |
+| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción            |
+| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                          |
+| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                        |
+| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                           |
+| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                     |
+| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                  |
+| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                     |
+| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                   |
+| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                  |
+| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                       |
+| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                       |
+| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                       |
+| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                   |
+| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas       |
+| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                         |
+| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                     |
+| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea       |
+| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`     |
+| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp               |
+| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                  |
+| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                        |
+| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                              |
+| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                    |
+| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com` |
+| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                      |
+| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                   |
+| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                   |
+| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                      |
+| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                |
 
 Decisión sobre estilos: `style-src` permite `'unsafe-inline'` porque MUI, Emotion y React usan atributos `style`. El riesgo de inyección de estilos es bajo frente al de scripts, que sí exige nonce.
 
@@ -245,10 +317,10 @@ Los contrastes se verifican con tests en [tokens.test.ts](../src/common/theme/to
 
 ## 8. Testing
 
-| Proyecto Vitest | Alcance                                                                                                                                                                                                                                                 | Comando         |
-| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
-| `unit`          | Dominio (permisos, invitaciones, segmentos, importación, plantillas, documentos, branding), criptografía, CSV/XLSX, extensión de tenant, Liquid, saneador (batería XSS), compilador de correos, URL firmadas, inspector de archivos y matcher del proxy | `pnpm test`     |
-| `integration`   | PostgreSQL real: aislamiento entre tenants, paridad SQL ↔ segmentos, upsert por lotes, importación de 10.000 filas, API, versiones de plantillas, documentos y branding; Gotenberg real (PPTX, XLSX, HTML, Markdown)                                    | `pnpm test:int` |
+| Proyecto Vitest | Alcance                                                                                                                                                                                                                                                                                                                                                       | Comando         |
+| --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------- |
+| `unit`          | Dominio (permisos, invitaciones, segmentos, importación, plantillas, documentos, branding), criptografía, CSV/XLSX, extensión de tenant, Liquid, saneador (batería XSS), compilador de correos, URL firmadas, inspector de archivos y matcher del proxy                                                                                                       | `pnpm test`     |
+| `integration`   | PostgreSQL real: aislamiento entre tenants, paridad SQL ↔ segmentos, upsert por lotes, importación de 10.000 filas, API, versiones de plantillas, documentos y branding; Gotenberg real (PPTX, XLSX, HTML, Markdown); audiencia de campañas, despacho idempotente, envío SMTP real a Mailpit, CAS de entregas, ritmo y cupos en Redis, tokens de recuperación | `pnpm test:int` |
 
 Los tests de integración usan el servicio efímero `postgres-test` (en memoria): `docker compose --profile test up -d --wait postgres-test`. Cada test crea sus propios tenants, así que no necesitan borrar datos.
 
@@ -267,26 +339,51 @@ En la Fase 2 se verificaron con Chrome _headless_, contra las imágenes de produ
 - versiones y restauración, XSS en Markdown, branding con contraste y logotipo;
 - URL públicas firmadas y manipuladas, y móvil sin desbordamiento.
 
+En la Fase 3:
+
+- **Carga** (script contra las imágenes de producción): 5.000 destinatarios a Mailpit con un límite de 50/s.
+  - Hubo reinicio ordenado del worker, pausa, reanudación y `SIGKILL` a mitad del envío.
+  - Resultado: 0 contactos duplicados y un máximo de 47 envíos en cualquier ventana deslizante de 1 s.
+  - Las 15 entregas que quedaron en `SENDING` tras el `SIGKILL` se recuperaron a los 10 minutos.
+- **Webhooks Resend firmados:**
+  - una entrega, un rebote permanente y una queja aplican su estado y crean supresiones;
+  - el _replay_ se deduplica, una firma falsa devuelve 401 y un endpoint desconocido, 404.
+- **Seguimiento:**
+  - el píxel devuelve un GIF `no-store`;
+  - los clics devuelven 302, y la descarga del documento registra `DOWNLOADED`;
+  - un token manipulado devuelve 404;
+  - la baja por GET redirige con 303 al centro de preferencias, y por POST (_one-click_) devuelve 200 y crea la supresión.
+- **Chrome _headless_ (36 pasos):**
+  - proveedores (probar conexión y ningún secreto en el HTML), remitentes con DNS e informe de la campaña de 5.000;
+  - asistente completo: duplicar, audiencia, envío, revisión, prueba recibida en Mailpit, envío y fin por _polling_;
+  - panel con gráfica y tabla alternativa, e inglés;
+  - invitación por correo, centro de preferencias, recuperación de contraseña de un solo uso y móvil sin desbordamiento.
+
 El test del matcher del proxy compila el patrón con la misma función que usa Next.js. Next.js elimina las barras invertidas, y un `\.` mal puesto dejaba sin CSP ni idioma a todas las páginas salvo la raíz.
 
 ## 9. Escalabilidad
 
 - **App web:** no guarda estado. Se puede escalar horizontalmente detrás de Caddy, porque las sesiones son JWT y el estado vive en PostgreSQL y Redis.
-- **Worker:** los limitadores de BullMQ son globales vía Redis, así que se pueden añadir réplicas del worker sin superar los límites de cada proveedor de correo. Al inicio se recomienda una réplica.
+- **Worker:** los límites de envío (ritmo GCRA y cupos) viven en Redis y usan su reloj, así que se pueden añadir réplicas del worker sin superar los límites de cada proveedor. La idempotencia está en la base de datos (claves únicas y CAS), no en el proceso. `EMAIL_SEND_CONCURRENCY` fija los envíos simultáneos por réplica.
 - **PostgreSQL:** índices compuestos por `tenantId`. Se prevé particionado mensual de eventos de entrega y RLS como capa adicional (Fase 5).
 - **Archivos:** el puerto de almacenamiento es S3 estándar. Migrar a AWS S3 o Cloudflare R2 solo cambia variables de entorno.
 
 ## 10. Problemas conocidos y soluciones
 
-| Síntoma                                                       | Causa                                       | Solución                                                   |
-| ------------------------------------------------------------- | ------------------------------------------- | ---------------------------------------------------------- |
-| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                    | Copiar la CA raíz a `docker/certs/`                        |
-| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h        | Fijar la versión anterior                                  |
-| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación | Decidir `true` o `false` en `allowBuilds`                  |
-| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto            | Cambiar el puerto en `compose.override.yaml` y en `.env`   |
-| Readiness con `worker: down`                                  | El worker no está en marcha                 | `pnpm dev:worker` o `docker compose up worker`             |
-| Una importación se queda en "En cola"                         | El worker no está en marcha                 | Iniciar el worker; el job se procesa al arrancar           |
-| `pnpm test:int` falla al conectar                             | `postgres-test` no está levantado           | `docker compose --profile test up -d --wait postgres-test` |
-| Documento en `FAILED` con `TOOLS_UNAVAILABLE`                 | El worker no encuentra poppler              | Ejecutar el worker en Docker o definir `POPPLER_BIN_DIR`   |
-| Documento en `FAILED` con `CONVERSION_FAILED`                 | Gotenberg caído o archivo dañado            | Revisar Gotenberg y pulsar **Reintentar**                  |
-| Acentos incorrectos en la miniatura de un HTML                | HTML sin `charset` (versiones anteriores)   | Reintentar: el conversor ya declara UTF-8 automáticamente  |
+| Síntoma                                                       | Causa                                             | Solución                                                      |
+| ------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
+| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                          | Copiar la CA raíz a `docker/certs/`                           |
+| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h              | Fijar la versión anterior                                     |
+| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación       | Decidir `true` o `false` en `allowBuilds`                     |
+| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto                  | Cambiar el puerto en `compose.override.yaml` y en `.env`      |
+| Readiness con `worker: down`                                  | El worker no está en marcha                       | `pnpm dev:worker` o `docker compose up worker`                |
+| Una importación se queda en "En cola"                         | El worker no está en marcha                       | Iniciar el worker; el job se procesa al arrancar              |
+| `pnpm test:int` falla al conectar                             | `postgres-test` no está levantado                 | `docker compose --profile test up -d --wait postgres-test`    |
+| Documento en `FAILED` con `TOOLS_UNAVAILABLE`                 | El worker no encuentra poppler                    | Ejecutar el worker en Docker o definir `POPPLER_BIN_DIR`      |
+| Documento en `FAILED` con `CONVERSION_FAILED`                 | Gotenberg caído o archivo dañado                  | Revisar Gotenberg y pulsar **Reintentar**                     |
+| Acentos incorrectos en la miniatura de un HTML                | HTML sin `charset` (versiones anteriores)         | Reintentar: el conversor ya declara UTF-8 automáticamente     |
+| Campaña en pausa con `PROVIDER_ERROR`                         | El proveedor rechazó credenciales o configuración | Corregir el proveedor, **Probar conexión** y **Reanudar**     |
+| «Host bloqueado» al probar un SMTP local                      | Protección SSRF                                   | En desarrollo, `SSRF_ALLOW_PRIVATE=true`; nunca en producción |
+| Entregas en `SENDING` tras una caída del worker               | El worker murió a mitad de un envío               | Se recuperan solas a los 10 minutos                           |
+| No llegan invitaciones ni correos de recuperación             | Falta `SYSTEM_MAIL_SMTP_URL`                      | Configurar el SMTP de plataforma y reiniciar app y worker     |
+| Webhook de Resend con 401                                     | Secreto `whsec_` distinto del de Resend           | Copiar el secreto del panel de Resend en el proveedor         |
