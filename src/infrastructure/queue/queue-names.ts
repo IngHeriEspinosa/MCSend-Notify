@@ -11,6 +11,7 @@ export const QUEUE_NAMES = {
   emailSend: 'email-send',
   providerEvents: 'provider-events',
   systemMail: 'system-mail',
+  automationRun: 'automation-run',
 } as const;
 
 export type QueueName = (typeof QUEUE_NAMES)[keyof typeof QUEUE_NAMES];
@@ -21,4 +22,5 @@ export const MAINTENANCE_JOBS = {
   campaignsDue: 'campaigns-due',
   campaignsComplete: 'campaigns-complete',
   deliveriesRecover: 'deliveries-recover',
+  approvalsExpire: 'approvals-expire',
 } as const;

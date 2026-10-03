@@ -21,6 +21,7 @@ import { QUEUE_NAMES, type QueueName } from '@/infrastructure/queue/queue-names'
 import { useCases } from '@/infrastructure/use-case-factory';
 import { startHealthServer } from './health-server';
 import {
+  createAutomationRunProcessor,
   createCampaignDispatchProcessor,
   createEmailSendProcessor,
   createProviderEventProcessor,
@@ -64,7 +65,11 @@ async function main(): Promise<void> {
   const workers = [
     startWorker(
       QUEUE_NAMES.maintenance,
-      createMaintenanceProcessor(getWorkerHeartbeat(), useCases.campaignMaintenance()),
+      createMaintenanceProcessor(
+        getWorkerHeartbeat(),
+        useCases.campaignMaintenance(),
+        useCases.approvals(),
+      ),
       {
         connection,
         concurrency: 1,
@@ -101,16 +106,23 @@ async function main(): Promise<void> {
       concurrency: 2,
       logger,
     }),
+    startWorker(
+      QUEUE_NAMES.automationRun,
+      createAutomationRunProcessor({ run: useCases.runAutomation() }),
+      { connection, concurrency: 2, logger },
+    ),
   ];
 
   await registerMaintenanceSchedulers(maintenanceQueue);
+  // Reprograma las automatizaciones activas (idempotente) por si Redis perdió sus programaciones.
+  const automations = await useCases.automations().syncSchedules();
 
   const healthServer: Server = await startHealthServer(env.WORKER_HEALTH_PORT, () => ({
     redis: connection.status === 'ready',
     workers: Object.fromEntries(workers.map((worker) => [worker.name, worker.isRunning()])),
   }));
   logger.info(
-    { port: env.WORKER_HEALTH_PORT, queues: workers.map((worker) => worker.name) },
+    { port: env.WORKER_HEALTH_PORT, queues: workers.map((worker) => worker.name), automations },
     'Worker iniciado',
   );
 

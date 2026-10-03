@@ -97,7 +97,33 @@
     "scheduleInPast": "La fecha programada ya pasó.",
     "providerError": "El proveedor de correo no está operativo. Pruébalo en Configuración › Proveedores.",
     "providerInUse": "El proveedor tiene remitentes asociados. Elimínalos o cámbialos primero.",
-    "senderMissing": "Elige un remitente para la campaña."
+    "senderMissing": "Elige un remitente para la campaña.",
+    "reasons": {
+      "AI_NOT_CONFIGURED": "La IA no está configurada para esta aplicación. Un administrador puede activarla en Configuración › IA.",
+      "AI_BUDGET_EXCEEDED": "Se agotó el presupuesto de IA de este mes. Un administrador puede ampliarlo en Configuración › IA.",
+      "AI_BUDGET_ABOVE_PLATFORM": "El presupuesto supera el máximo permitido con la IA de la plataforma.",
+      "AI_AUTH": "El proveedor de IA rechazó la clave. Revísala en Configuración › IA.",
+      "AI_CONFIG": "El proveedor de IA rechazó la petición (modelo o URL incorrectos). Revisa la configuración.",
+      "AI_PROVIDER_BUSY": "El proveedor de IA está saturado. Inténtalo de nuevo en unos minutos.",
+      "AI_REFUSED": "La IA no quiso generar este contenido. Revisa las fuentes o las instrucciones.",
+      "AI_INVALID_OUTPUT": "La IA devolvió un resultado no válido. Vuelve a intentarlo.",
+      "AI_UNAVAILABLE": "El proveedor de IA no está disponible. Inténtalo más tarde.",
+      "AI_UNSUPPORTED_FORMAT": "La IA no reescribe plantillas HTML; usa bloques o Markdown.",
+      "AI_SAME_LOCALE": "La plantilla ya está en ese idioma.",
+      "AI_SEGMENT_INVALID": "La IA propuso reglas que no son válidas. Prueba con otra descripción.",
+      "SOURCE_BLOCKED": "Una de las URL no está permitida (red interna o dirección reservada).",
+      "SOURCE_UNAVAILABLE": "No se pudo descargar una de las fuentes. Comprueba la URL.",
+      "SOURCE_DOCUMENT": "Uno de los documentos no existe o aún no está procesado.",
+      "SOURCES_EMPTY": "Las fuentes no tienen contenido (por ejemplo, no hay novedades nuevas).",
+      "SOURCES_COUNT": "Añade entre 1 y 10 fuentes.",
+      "INVALID_APPROVER": "Uno de los aprobadores no es miembro o no puede enviar campañas.",
+      "NOT_APPROVER": "No eres aprobador de esta campaña.",
+      "APPROVAL_DECIDED": "Esta aprobación ya se decidió.",
+      "TEMPLATE_CHANGED": "La plantilla cambió mientras la revisabas. Recarga la página y revísala de nuevo.",
+      "NO_RECIPIENTS": "La audiencia está vacía: elige al menos una lista o un segmento.",
+      "BLOCKING_ISSUES": "La campaña tiene errores que impiden el envío.",
+      "UNEXPECTED": "Error inesperado durante la ejecución."
+    }
   },
   "Auth": {
     "loginTitle": "Inicia sesión",
@@ -173,7 +199,12 @@
     "branding": "Marca de los correos",
     "campaigns": "Campañas",
     "providers": "Proveedores de correo",
-    "senders": "Remitentes"
+    "senders": "Remitentes",
+    "approvals": "Aprobaciones",
+    "automations": "Automatizaciones",
+    "changelog": "Novedades",
+    "ai": "Inteligencia artificial",
+    "pendingCount": "{count, plural, one {# pendiente} other {# pendientes}}"
   },
   "SelectTenant": {
     "title": "Elige una aplicación",
@@ -377,7 +408,12 @@
       "notInList": "no pertenece a",
       "hasTag": "tiene",
       "notHasTag": "no tiene"
-    }
+    },
+    "aiTitle": "Describir la audiencia con IA",
+    "aiPrompt": "¿A quién quieres llegar?",
+    "aiHint": "Por ejemplo: \"clientes activos de la lista Enterprise que hablan inglés y abrieron un correo en los últimos 30 días\".",
+    "aiGenerate": "Generar reglas",
+    "aiReview": "Revisa las reglas antes de guardar."
   },
   "Settings": {
     "generalTitle": "Configuración general",
@@ -413,7 +449,8 @@
     "revokeKeyBody": "Las integraciones que la usen dejarán de funcionar de inmediato.",
     "scopeNames": {
       "contacts:read": "Leer contactos",
-      "contacts:write": "Crear y actualizar contactos"
+      "contacts:write": "Crear y actualizar contactos",
+      "changelog:write": "Publicar novedades (changelog)"
     },
     "fieldsTitle": "Campos personalizados",
     "fieldsSubtitle": "Datos adicionales de tus contactos para segmentar y personalizar.",
@@ -848,7 +885,8 @@
       "PAUSED": "En pausa",
       "SENT": "Enviada",
       "CANCELLED": "Cancelada",
-      "FAILED": "Error"
+      "FAILED": "Error",
+      "PENDING_APPROVAL": "Pendiente de aprobación"
     }
   },
   "CampaignEditor": {
@@ -964,6 +1002,303 @@
     "deliveriesTitle": "Entregas",
     "noDeliveries": "Sin entregas.",
     "cancelTitle": "¿Cancelar la campaña?",
-    "cancelBody": "Los correos que aún no se enviaron no se enviarán. Esta acción no se puede deshacer."
+    "cancelBody": "Los correos que aún no se enviaron no se enviarán. Esta acción no se puede deshacer.",
+    "pendingApproval": "Esta campaña la generó una automatización y no se enviará hasta que alguien la apruebe.",
+    "reviewApproval": "Revisar y decidir"
+  },
+  "AiSources": {
+    "legend": "Fuentes",
+    "add": "Añadir fuente",
+    "remove": "Quitar fuente",
+    "title": "Título (opcional)",
+    "text": "Texto",
+    "textHint": "Notas, viñetas o un borrador. Puedes incluir enlaces: serán los únicos que la IA podrá usar.",
+    "url": "Dirección de la página",
+    "urlHint": "Solo páginas públicas (http o https).",
+    "feedUrl": "Dirección del feed RSS o Atom",
+    "maxItems": "Elementos",
+    "document": "Documento",
+    "noDocuments": "No hay documentos listos en la biblioteca.",
+    "days": "Últimos días",
+    "onlyNew": "Solo novedades no enviadas",
+    "kinds": {
+      "text": "Texto",
+      "url": "Página web",
+      "rss": "Feed RSS",
+      "document": "Documento",
+      "changelog": "Novedades del buzón"
+    }
+  },
+  "AiDraft": {
+    "open": "Redactar con IA",
+    "title": "Redactar con IA",
+    "intro": "La IA redacta un borrador a partir de las fuentes. Tú lo revisas y decides si lo guardas: nunca se envía nada automáticamente.",
+    "generate": "Generar borrador",
+    "generating": "Generando…",
+    "instructions": "Instrucciones",
+    "instructionsHint": "Opcional: público, extensión, qué destacar o qué evitar.",
+    "tone": "Tono",
+    "tones": {
+      "professional": "Profesional",
+      "friendly": "Cercano",
+      "concise": "Conciso",
+      "enthusiastic": "Entusiasta"
+    },
+    "removedLinks": "{count, plural, one {Se eliminó # enlace que no aparecía en las fuentes:} other {Se eliminaron # enlaces que no aparecían en las fuentes:}}",
+    "sourcesUsed": "Fuentes usadas: {sources}",
+    "cost": "Coste aproximado: {cost}",
+    "reviewHint": "Revisa los datos y el tono antes de usarlo. Después podrás editarlo como cualquier plantilla.",
+    "templateName": "Nombre de la plantilla",
+    "defaultName": "IA · {subject}",
+    "description": "Borrador generado con IA",
+    "created": "Plantilla creada a partir del borrador.",
+    "back": "Cambiar fuentes",
+    "accept": "Guardar como plantilla"
+  },
+  "TemplateAi": {
+    "title": "Asistente de IA",
+    "hint": "La IA solo reescribe textos: enlaces, documentos y estructura no cambian. Revisa el resultado antes de guardar.",
+    "suggestSubjects": "Sugerir asuntos",
+    "translateTo": "Traducir a {language}",
+    "adjustTone": "Ajustar el tono",
+    "toneApplied": "Tono aplicado. Revisa los textos y guarda.",
+    "rejected": "{count, plural, one {# texto conservó su versión original porque la propuesta no era válida.} other {# textos conservaron su versión original porque la propuesta no era válida.}}",
+    "translatedFrom": "Traducción de «{name}»",
+    "translated": "Traducción creada como plantilla nueva.",
+    "subjectsTitle": "Propuestas de asunto",
+    "noSubjects": "No hay propuestas válidas. Inténtalo de nuevo.",
+    "use": "Usar",
+    "length": "{count} caracteres",
+    "flags": {
+      "TOO_SHORT": "Muy corto",
+      "TOO_LONG": "Muy largo",
+      "ALL_CAPS": "Todo en mayúsculas",
+      "SPAM_WORDS": "Palabras de spam",
+      "EXCLAMATIONS": "Exclamaciones",
+      "EMOJIS": "Demasiados emojis"
+    }
+  },
+  "CampaignAiSummary": {
+    "title": "Resumen con IA",
+    "generate": "Generar resumen",
+    "regenerate": "Generar de nuevo",
+    "generating": "Generando…",
+    "highlights": "Datos clave",
+    "recommendations": "Recomendaciones",
+    "disclaimer": "Resumen generado con IA a partir de las métricas de esta página. Contrasta las conclusiones antes de decidir.",
+    "hint": "Obtén una lectura de los resultados y recomendaciones para la próxima campaña."
+  },
+  "AiSettings": {
+    "title": "Inteligencia artificial",
+    "subtitle": "Redacción de campañas, asuntos, traducciones, segmentos y automatizaciones.",
+    "saved": "Configuración de IA guardada.",
+    "verifyOk": "Conexión con el modelo verificada.",
+    "disabledHint": "La IA está desactivada. Elige una opción y guarda para activarla.",
+    "source": "Origen",
+    "sources": {
+      "PLATFORM": "IA de la plataforma",
+      "OWN": "Clave propia"
+    },
+    "platformHint": "Claude con la cuenta de Multicómputos. Presupuesto máximo: {max} al mes.",
+    "platformUnavailable": "No disponible: la plataforma no tiene una clave configurada.",
+    "ownHint": "Tu clave de Anthropic, OpenAI o un servidor compatible (Ollama, vLLM…). El gasto se factura a tu cuenta.",
+    "kind": "Proveedor",
+    "kinds": {
+      "ANTHROPIC": "Anthropic (Claude)",
+      "OPENAI": "OpenAI",
+      "OPENAI_COMPATIBLE": "Compatible con OpenAI (Ollama, vLLM…)"
+    },
+    "kindHints": {
+      "ANTHROPIC": "Recomendado. Usa el SDK oficial con salida estructurada.",
+      "OPENAI": "API oficial de OpenAI con salida estructurada.",
+      "OPENAI_COMPATIBLE": "Servidor propio con la API /chat/completions y JSON Schema."
+    },
+    "apiKey": "Clave de API",
+    "apiKeyHint": "Se guarda cifrada y nunca se vuelve a mostrar.",
+    "baseUrl": "URL de la API",
+    "baseUrlHints": {
+      "ANTHROPIC": "Anthropic usa siempre su API oficial.",
+      "OPENAI": "Opcional. Por defecto, https://api.openai.com/v1.",
+      "OPENAI_COMPATIBLE": "Por ejemplo, http://ollama:11434/v1."
+    },
+    "defaultModel": "Modelo principal",
+    "fastModel": "Modelo rápido",
+    "noFastModel": "Usar el principal",
+    "models": {
+      "claude-opus-5-5": "Claude Opus 5.5 (máxima calidad)",
+      "claude-sonnet-5-5": "Claude Sonnet 5.5 (equilibrado)",
+      "claude-haiku-4-5": "Claude Haiku 4.5 (rápido y económico)"
+    },
+    "modelHint": "Nombre exacto del modelo en el proveedor.",
+    "fastModelHint": "Opcional: para asuntos, tono y resúmenes.",
+    "budget": "Presupuesto mensual (USD)",
+    "budgetHint": "Al alcanzarlo, la IA se bloquea hasta el mes siguiente (UTC).",
+    "budgetPlatformHint": "Máximo {max}. Al alcanzarlo, la IA se bloquea hasta el mes siguiente (UTC).",
+    "inputPrice": "Precio de entrada (USD por millón de tokens)",
+    "outputPrice": "Precio de salida (USD por millón de tokens)",
+    "priceHint": "Para calcular el gasto con modelos sin tarifa conocida. Vacío = 0.",
+    "disable": "Desactivar IA",
+    "disableTitle": "¿Desactivar la IA?",
+    "disableBody": "Se borrará la clave guardada. Las automatizaciones dejarán de generar campañas hasta que vuelvas a activarla.",
+    "disabled": "IA desactivada.",
+    "usageTitle": "Uso de este mes",
+    "spent": "{spent} de {budget}",
+    "budgetProgress": "Presupuesto consumido",
+    "calls": "{calls, plural, one {# petición} other {# peticiones}} · {errors, plural, one {# con error} other {# con error}}",
+    "purpose": "Uso",
+    "callsColumn": "Peticiones",
+    "costColumn": "Coste",
+    "purposes": {
+      "campaign_draft": "Borradores de campaña",
+      "subject_suggestions": "Propuestas de asunto",
+      "translation": "Traducciones",
+      "tone": "Ajustes de tono",
+      "segment": "Segmentos",
+      "results_summary": "Resúmenes de resultados",
+      "connection_test": "Pruebas de conexión"
+    },
+    "noUsage": "Todavía no hay uso este mes.",
+    "privacy": "Al proveedor solo se envían las fuentes y textos necesarios para cada tarea; nunca la lista de contactos."
+  },
+  "Changelog": {
+    "pageTitle": "Novedades",
+    "subtitle": "Buzón de novedades de la aplicación. Las automatizaciones las usan para el resumen periódico.",
+    "new": "Nueva novedad",
+    "empty": "Todavía no hay novedades.",
+    "date": "Fecha",
+    "entry": "Novedad",
+    "category": "Tipo",
+    "state": "Estado",
+    "categories": {
+      "FEATURE": "Función nueva",
+      "IMPROVEMENT": "Mejora",
+      "FIX": "Corrección",
+      "SECURITY": "Seguridad",
+      "OTHER": "Otro"
+    },
+    "sent": "Enviada el {date}",
+    "pending": "Pendiente de enviar",
+    "apiTitle": "Publicar desde tus aplicaciones",
+    "apiHint": "Crea una clave de API con el permiso \"Publicar novedades\" y llama a este endpoint al publicar una versión. Con externalId, repetir la llamada actualiza la novedad en lugar de duplicarla.",
+    "apiExample": "Ejemplo",
+    "title": "Título",
+    "version": "Versión",
+    "body": "Descripción",
+    "bodyHint": "Markdown sencillo. Los enlaces que incluyas podrán aparecer en el correo.",
+    "publish": "Publicar",
+    "published": "Novedad publicada.",
+    "deleteTitle": "¿Eliminar esta novedad?",
+    "deleteBody": "Dejará de estar disponible para las próximas automatizaciones."
+  },
+  "Automations": {
+    "title": "Automatizaciones",
+    "subtitle": "Correos recurrentes redactados con IA, como el resumen semanal de novedades.",
+    "new": "Nueva automatización",
+    "newSubtitle": "Define cuándo se ejecuta, de dónde sale el contenido, a quién se envía y quién lo aprueba.",
+    "empty": "Todavía no hay automatizaciones.",
+    "frequency": "Frecuencia",
+    "frequencies": {
+      "daily": "Diaria",
+      "weekly": "Semanal",
+      "monthly": "Mensual"
+    },
+    "weekday": "Día de la semana",
+    "dayOfMonth": "Día del mes",
+    "time": "Hora",
+    "timezone": "Zona horaria",
+    "scheduleSummary": "{schedule} ({timezone}).",
+    "schedules": {
+      "daily": "Cada día a las {time}",
+      "weekly": "Cada {weekday} a las {time}",
+      "monthly": "El día {day} de cada mes a las {time}"
+    },
+    "sections": {
+      "schedule": "Nombre y programación",
+      "content": "Contenido",
+      "audience": "Audiencia y remitente",
+      "approval": "Aprobación"
+    },
+    "skipWhenNoNews": "No enviar si no hay novedades nuevas",
+    "instructionsHint": "Qué debe contener el correo, extensión, tono o secciones fijas.",
+    "requiresApproval": "Requiere la aprobación de una persona antes de enviar",
+    "approvers": "Aprobadores",
+    "approversHint": "Reciben un correo con el enlace para revisar la campaña. Solo miembros con permiso de envío.",
+    "timeoutHours": "Plazo para decidir (horas)",
+    "onTimeout": "Si nadie decide a tiempo",
+    "onTimeoutActions": {
+      "cancel": "Cancelar la campaña",
+      "send": "Enviarla igualmente"
+    },
+    "noApprovalWarning": "Sin aprobación, las campañas generadas por la IA se enviarán automáticamente a toda la audiencia.",
+    "definitionError": "Revisa los datos marcados: fuentes, audiencia, remitente y aprobadores.",
+    "saved": "Automatización guardada.",
+    "created": "Automatización creada. Actívala cuando quieras que empiece a ejecutarse.",
+    "active": "Activa",
+    "inactive": "Inactiva",
+    "inactiveHint": "No se ejecutará hasta que la actives.",
+    "enabledMessage": "Automatización activada.",
+    "disabledMessage": "Automatización desactivada.",
+    "runNow": "Ejecutar ahora",
+    "runQueued": "Ejecución en cola. Aparecerá en el historial en unos segundos.",
+    "aiRequired": "La IA no está disponible: configúrala en Configuración › IA para que la automatización pueda redactar.",
+    "runsTitle": "Historial de ejecuciones",
+    "noRuns": "Todavía no se ha ejecutado.",
+    "started": "Inicio",
+    "trigger": "Origen",
+    "triggers": {
+      "schedule": "Programada",
+      "manual": "Manual"
+    },
+    "result": "Resultado",
+    "runStatuses": {
+      "RUNNING": "En curso",
+      "AWAITING_APPROVAL": "Esperando aprobación",
+      "SCHEDULED": "Enviada a la cola",
+      "SKIPPED": "Omitida (sin novedades)",
+      "REJECTED": "Rechazada",
+      "EXPIRED": "Caducada",
+      "FAILED": "Error"
+    },
+    "viewCampaign": "Ver la campaña",
+    "reviewApproval": "Revisar la aprobación",
+    "sourcesUsed": "{count, plural, one {# fuente usada} other {# fuentes usadas}}",
+    "deleteTitle": "¿Eliminar esta automatización?",
+    "deleteBody": "Se cancelará su programación y se borrará su historial. Las campañas ya creadas se conservan.",
+    "lastRun": "Última ejecución",
+    "nextRuns": "Se ejecuta: {schedule}"
+  },
+  "Approvals": {
+    "title": "Aprobaciones",
+    "subtitle": "Campañas generadas por automatizaciones que esperan una decisión.",
+    "empty": "No hay aprobaciones.",
+    "automation": "Automatización",
+    "requested": "Solicitada",
+    "expires": "Caduca",
+    "status": "Estado",
+    "statuses": {
+      "PENDING": "Pendiente",
+      "APPROVED": "Aprobada",
+      "REJECTED": "Rechazada",
+      "EXPIRED": "Caducada"
+    },
+    "reviewTitle": "Revisar campaña",
+    "expiresOn": "Caduca el {date}",
+    "campaign": "Campaña",
+    "subject": "Asunto",
+    "recipients": "Destinatarios",
+    "commentWas": "Comentario: {comment}",
+    "decision": "Decisión",
+    "blocking": "La campaña tiene errores que impiden el envío (por ejemplo, sin remitente o sin destinatarios). Recházala y corrígela.",
+    "decisionHint": "Al aprobar, se envía exactamente el contenido de la vista previa. Al rechazar, la campaña vuelve a borrador para editarla.",
+    "comment": "Comentario (opcional)",
+    "approve": "Aprobar y enviar",
+    "reject": "Rechazar",
+    "notApprover": "Solo los aprobadores designados, propietarios o administradores pueden decidir.",
+    "preview": "Vista previa del correo",
+    "confirmTitle": "¿Aprobar y enviar?",
+    "confirmBody": "La campaña se enviará ahora a {count} destinatarios.",
+    "approved": "Campaña aprobada: el envío ha comenzado.",
+    "rejected": "Campaña rechazada: volvió a borrador.",
+    "removedLinks": "{count, plural, one {La IA propuso # enlace que no estaba en las fuentes y se eliminó. Lee con atención el texto que lo acompañaba (posible inyección) antes de aprobar:} other {La IA propuso # enlaces que no estaban en las fuentes y se eliminaron. Lee con atención el texto que los acompañaba (posible inyección) antes de aprobar:}}"
   }
 }

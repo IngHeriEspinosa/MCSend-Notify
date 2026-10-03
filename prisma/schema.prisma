@@ -111,6 +111,8 @@ enum ProviderStatus {
 
 enum CampaignStatus {
   DRAFT
+  /// Generada por una automatización y a la espera de que una persona la apruebe.
+  PENDING_APPROVAL
   SCHEDULED
   DISPATCHING
   SENDING
@@ -167,22 +169,28 @@ model Tenant {
   createdAt             DateTime     @default(now()) @map("created_at")
   updatedAt             DateTime     @updatedAt @map("updated_at")
 
-  memberships   TenantMembership[]
-  invitations   Invitation[]
-  apiKeys       ApiKey[]
-  contacts      Contact[]
-  contactFields ContactField[]
-  contactLists  ContactList[]
-  tags          Tag[]
-  segments      Segment[]
-  topics        Topic[]
-  suppressions  Suppression[]
-  imports       ContactImport[]
-  templates     Template[]
-  documents     Document[]
-  providers     EmailProviderConfig[]
-  senders       SenderIdentity[]
-  campaigns     Campaign[]
+  memberships    TenantMembership[]
+  invitations    Invitation[]
+  apiKeys        ApiKey[]
+  contacts       Contact[]
+  contactFields  ContactField[]
+  contactLists   ContactList[]
+  tags           Tag[]
+  segments       Segment[]
+  topics         Topic[]
+  suppressions   Suppression[]
+  imports        ContactImport[]
+  templates      Template[]
+  documents      Document[]
+  providers      EmailProviderConfig[]
+  senders        SenderIdentity[]
+  campaigns      Campaign[]
+  aiSettings     AiSettings?
+  aiUsage        AiUsage[]
+  changelog      ChangelogEntry[]
+  automations    Automation[]
+  automationRuns AutomationRun[]
+  approvals      ApprovalRequest[]
 
   @@map("tenants")
 }
@@ -844,4 +852,205 @@ model InboundWebhookEvent {
   @@unique([providerConfigId, providerEventId])
   @@index([tenantId, receivedAt])
   @@map("inbound_webhook_events")
+}
+
+// ============================================================================
+// Fase 4: IA, buzón de novedades (changelog), automatizaciones y aprobaciones
+// ============================================================================
+
+enum AiSource {
+  /// IA de la plataforma (clave PLATFORM_AI_ANTHROPIC_API_KEY, con presupuesto por tenant).
+  PLATFORM
+  /// Clave propia del tenant.
+  OWN
+}
+
+enum AiProviderKind {
+  ANTHROPIC
+  OPENAI
+  /// Cualquier API compatible con OpenAI (Ollama, vLLM, LM Studio...).
+  OPENAI_COMPATIBLE
+}
+
+/// Configuración de IA de un tenant (una por tenant). Sin fila, la IA está desactivada.
+model AiSettings {
+  id                 String         @id @default(uuid(7)) @db.Uuid
+  tenantId           String         @unique @map("tenant_id") @db.Uuid
+  source             AiSource
+  kind               AiProviderKind
+  /// Clave de API cifrada (AES-256-GCM, AAD tenant:ai_settings:id). Null con la IA de plataforma.
+  credentialsEnc     String?        @map("credentials_enc")
+  baseUrl            String?        @map("base_url")
+  defaultModel       String         @map("default_model")
+  /// Modelo rápido y barato para tareas cortas (asuntos, traducciones).
+  fastModel          String?        @map("fast_model")
+  monthlyBudgetUsd   Float          @map("monthly_budget_usd")
+  /// Precios por millón de tokens para modelos sin tarifa conocida (OpenAI-compatible).
+  inputPricePerMTok  Float?         @map("input_price_per_mtok")
+  outputPricePerMTok Float?         @map("output_price_per_mtok")
+  status             ProviderStatus @default(ACTIVE)
+  lastError          String?        @map("last_error")
+  lastVerifiedAt     DateTime?      @map("last_verified_at")
+  configVersion      Int            @default(1) @map("config_version")
+  createdAt          DateTime       @default(now()) @map("created_at")
+  updatedAt          DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@map("ai_settings")
+}
+
+enum AiUsageStatus {
+  OK
+  ERROR
+  REFUSED
+}
+
+/// Registro de cada llamada a un modelo (coste, tokens y latencia). Base del presupuesto mensual.
+model AiUsage {
+  id               String        @id @default(uuid(7)) @db.Uuid
+  tenantId         String        @map("tenant_id") @db.Uuid
+  /// Usuario que la pidió; null en automatizaciones.
+  userId           String?       @map("user_id") @db.Uuid
+  purpose          String
+  model            String
+  inputTokens      Int           @default(0) @map("input_tokens")
+  outputTokens     Int           @default(0) @map("output_tokens")
+  cacheReadTokens  Int           @default(0) @map("cache_read_tokens")
+  cacheWriteTokens Int           @default(0) @map("cache_write_tokens")
+  /// Coste en millonésimas de dólar.
+  costMicros       Int           @default(0) @map("cost_micros")
+  latencyMs        Int           @default(0) @map("latency_ms")
+  status           AiUsageStatus
+  createdAt        DateTime      @default(now()) @map("created_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, createdAt])
+  @@map("ai_usage")
+}
+
+enum ChangelogCategory {
+  FEATURE
+  IMPROVEMENT
+  FIX
+  SECURITY
+  OTHER
+}
+
+/// Novedad publicada por una aplicación (API /api/v1/changelog o alta manual).
+model ChangelogEntry {
+  id              String            @id @default(uuid(7)) @db.Uuid
+  tenantId        String            @map("tenant_id") @db.Uuid
+  /// Identificador en el sistema de origen: hace idempotente el alta por API.
+  externalId      String?           @map("external_id")
+  version         String?
+  title           String
+  bodyMd          String            @map("body_md")
+  category        ChangelogCategory @default(OTHER)
+  publishedAt     DateTime          @map("published_at")
+  /// Ejecución de automatización que ya la incluyó en un correo.
+  consumedByRunId String?           @map("consumed_by_run_id") @db.Uuid
+  consumedAt      DateTime?         @map("consumed_at")
+  createdAt       DateTime          @default(now()) @map("created_at")
+  updatedAt       DateTime          @updatedAt @map("updated_at")
+
+  tenant Tenant @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+
+  @@unique([tenantId, externalId])
+  @@index([tenantId, publishedAt])
+  @@map("changelog_entries")
+}
+
+/// Automatización recurrente: reúne fuentes, redacta con IA, crea la campaña y la envía o la
+/// somete a aprobación.
+model Automation {
+  id          String    @id @default(uuid(7)) @db.Uuid
+  tenantId    String    @map("tenant_id") @db.Uuid
+  name        String
+  enabled     Boolean   @default(false)
+  /// { frequency, weekday?, dayOfMonth?, hour, minute } validado con Zod.
+  schedule    Json
+  timezone    String
+  /// Fuentes, instrucciones, audiencia, remitente y aprobación (automationDefinitionSchema).
+  definition  Json
+  createdById String    @map("created_by_id") @db.Uuid
+  lastRunAt   DateTime? @map("last_run_at")
+  createdAt   DateTime  @default(now()) @map("created_at")
+  updatedAt   DateTime  @updatedAt @map("updated_at")
+
+  tenant Tenant          @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  runs   AutomationRun[]
+
+  @@unique([tenantId, name])
+  @@map("automations")
+}
+
+enum AutomationRunStatus {
+  RUNNING
+  AWAITING_APPROVAL
+  SCHEDULED
+  SKIPPED
+  REJECTED
+  EXPIRED
+  FAILED
+}
+
+model AutomationRun {
+  id             String              @id @default(uuid(7)) @db.Uuid
+  tenantId       String              @map("tenant_id") @db.Uuid
+  automationId   String              @map("automation_id") @db.Uuid
+  /// Fecha programada o id manual: una misma ejecución nunca se procesa dos veces.
+  idempotencyKey String              @map("idempotency_key")
+  trigger        String
+  status         AutomationRunStatus @default(RUNNING)
+  campaignId     String?             @map("campaign_id") @db.Uuid
+  templateId     String?             @map("template_id") @db.Uuid
+  /// Resumen de las fuentes usadas (tipo, título, tamaño); nunca el contenido completo.
+  sources        Json                @default("[]")
+  /// Enlaces que la IA propuso y los guardrails eliminaron.
+  removedLinks   Json                @default("[]") @map("removed_links")
+  error          String?
+  startedAt      DateTime            @default(now()) @map("started_at")
+  finishedAt     DateTime?           @map("finished_at")
+
+  tenant     Tenant           @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  automation Automation       @relation(fields: [automationId], references: [id], onDelete: Cascade)
+  approval   ApprovalRequest?
+
+  @@unique([automationId, idempotencyKey])
+  @@index([tenantId, startedAt])
+  @@map("automation_runs")
+}
+
+enum ApprovalStatus {
+  PENDING
+  APPROVED
+  REJECTED
+  EXPIRED
+}
+
+/// Aprobación humana de una campaña generada por una automatización.
+model ApprovalRequest {
+  id              String         @id @default(uuid(7)) @db.Uuid
+  tenantId        String         @map("tenant_id") @db.Uuid
+  runId           String         @unique @map("run_id") @db.Uuid
+  campaignId      String         @map("campaign_id") @db.Uuid
+  approverUserIds String[]       @map("approver_user_ids") @db.Uuid
+  status          ApprovalStatus @default(PENDING)
+  /// Qué hacer si nadie decide a tiempo: "cancel" o "send".
+  onTimeout       String         @map("on_timeout")
+  expiresAt       DateTime       @map("expires_at")
+  decidedById     String?        @map("decided_by_id") @db.Uuid
+  decidedAt       DateTime?      @map("decided_at")
+  comment         String?
+  createdAt       DateTime       @default(now()) @map("created_at")
+  updatedAt       DateTime       @updatedAt @map("updated_at")
+
+  tenant Tenant        @relation(fields: [tenantId], references: [id], onDelete: Cascade)
+  run    AutomationRun @relation(fields: [runId], references: [id], onDelete: Cascade)
+
+  @@index([tenantId, status])
+  @@index([status, expiresAt])
+  @@map("approval_requests")
 }

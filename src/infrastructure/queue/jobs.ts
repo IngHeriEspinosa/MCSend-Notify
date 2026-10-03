@@ -5,6 +5,8 @@
 import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
+import type { AutomationRef, AutomationScheduler } from '@/core/automations/ports';
+import { cronFor } from '@/core/automations/automation';
 import type { CampaignQueue } from '@/core/campaigns/ports';
 import type { ProviderEventQueue } from '@/core/campaigns/use-cases/provider-events.use-cases';
 import type { ContactImportQueue } from '@/core/contacts/ports';
@@ -218,5 +220,82 @@ export class BullSystemMailQueue implements SystemMailQueue {
       removeOnComplete: true,
       removeOnFail: 200,
     });
+  }
+}
+
+export const automationRunJobSchema = z.object({
+  tenantId: z.uuid(),
+  tenantSlug: z.string().min(1),
+  automationId: z.uuid(),
+  trigger: z.enum(['schedule', 'manual']),
+  /** Solo en ejecuciones manuales; las programadas usan el id del job (único por fecha). */
+  idempotencyKey: z.string().max(120).optional(),
+});
+export type AutomationRunJob = z.infer<typeof automationRunJobSchema>;
+
+/** Reintentos de una ejecución con fallo transitorio (IA no disponible): 1, 2 y 4 min. */
+export const AUTOMATION_RUN_ATTEMPTS = 3;
+
+const AUTOMATION_JOB_OPTIONS = {
+  attempts: AUTOMATION_RUN_ATTEMPTS,
+  backoff: { type: 'exponential', delay: 60_000 },
+  removeOnComplete: true,
+  removeOnFail: 200,
+} as const;
+
+function schedulerId(automationId: string): string {
+  return 'automation-' + automationId;
+}
+
+/** Programación de automatizaciones con BullMQ Job Schedulers (cron + zona horaria). */
+export class BullAutomationScheduler implements AutomationScheduler {
+  private readonly queue: Queue<AutomationRunJob>;
+
+  constructor(connection: Redis) {
+    this.queue = new Queue<AutomationRunJob>(QUEUE_NAMES.automationRun, { connection });
+  }
+
+  async upsert(ref: AutomationRef): Promise<void> {
+    await this.queue.upsertJobScheduler(
+      schedulerId(ref.id),
+      { pattern: cronFor(ref.schedule), tz: ref.timezone },
+      {
+        name: 'run',
+        data: {
+          tenantId: ref.tenantId,
+          tenantSlug: ref.tenantSlug,
+          automationId: ref.id,
+          trigger: 'schedule',
+        },
+        opts: AUTOMATION_JOB_OPTIONS,
+      },
+    );
+  }
+
+  async remove(automationId: string): Promise<void> {
+    await this.queue.removeJobScheduler(schedulerId(automationId));
+  }
+
+  async enqueueRun(
+    context: TenantContext,
+    automationId: string,
+    idempotencyKey: string,
+    trigger: 'schedule' | 'manual',
+  ): Promise<void> {
+    await this.queue.add(
+      'run',
+      {
+        tenantId: context.tenantId,
+        tenantSlug: context.tenantSlug,
+        automationId,
+        trigger,
+        idempotencyKey,
+      },
+      { ...AUTOMATION_JOB_OPTIONS, jobId: ['automation', automationId, idempotencyKey].join('-') },
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
   }
 }

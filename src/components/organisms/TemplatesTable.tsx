@@ -1,6 +1,7 @@
 'use client';
 
 /** Listado de plantillas con alta (nombre, formato e idioma), duplicado y borrado. */
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import ContentCopyOutlined from '@mui/icons-material/ContentCopyOutlined';
 import DeleteOutlined from '@mui/icons-material/DeleteOutlined';
 import Button from '@mui/material/Button';
@@ -33,6 +34,7 @@ import { useAction } from '@/common/hooks/use-action';
 import { Link, useRouter } from '@/common/i18n/navigation';
 import { StatusChip } from '@/components/atoms/StatusChip';
 import { ConfirmDialog } from '@/components/molecules/ConfirmDialog';
+import { AiDraftDialog } from '@/components/organisms/AiDraftDialog';
 import { EmptyState } from '@/components/molecules/EmptyState';
 import {
   emptyTemplateBody,
@@ -48,6 +50,7 @@ interface TemplatesTableProps {
   defaultLocale: 'es' | 'en';
   /** Zona horaria del tenant: misma salida en servidor y cliente (sin errores de hidratación). */
   timeZone: string;
+  ai: { enabled: boolean; documents: Array<{ id: string; title: string }> };
 }
 
 export function TemplatesTable({
@@ -56,12 +59,14 @@ export function TemplatesTable({
   canWrite,
   defaultLocale,
   timeZone,
+  ai,
 }: TemplatesTableProps) {
   const t = useTranslations();
   const locale = useLocale();
   const router = useRouter();
   const { run, pending, fieldErrors } = useAction();
   const [creating, setCreating] = useState(false);
+  const [drafting, setDrafting] = useState(false);
   const [format, setFormat] = useState<TemplateFormat>('BLOCKS');
   const [deleting, setDeleting] = useState<TemplateSummary | null>(null);
   const dateFormat = new Intl.DateTimeFormat(locale, {
@@ -105,7 +110,12 @@ export function TemplatesTable({
   return (
     <>
       {canWrite ? (
-        <div className="mb-4 flex justify-end">
+        <div className="mb-4 flex flex-wrap justify-end gap-2">
+          {ai.enabled ? (
+            <Button startIcon={<AutoAwesomeOutlined />} onClick={() => setDrafting(true)}>
+              {t('AiDraft.open')}
+            </Button>
+          ) : null}
           <Button variant="contained" onClick={() => setCreating(true)}>
             {t('Templates.new')}
           </Button>
@@ -241,6 +251,20 @@ export function TemplatesTable({
           </DialogActions>
         </form>
       </Dialog>
+
+      {ai.enabled ? (
+        <AiDraftDialog
+          tenantSlug={tenantSlug}
+          open={drafting}
+          onClose={() => setDrafting(false)}
+          defaultLocale={defaultLocale}
+          documents={ai.documents}
+          onCreated={(id) => {
+            setDrafting(false);
+            router.push(`/t/${tenantSlug}/templates/${id}`);
+          }}
+        />
+      ) : null}
 
       <ConfirmDialog
         open={deleting !== null}

@@ -20,6 +20,7 @@ export const RATE_LIMITS = {
   invitation: { keyPrefix: 'rl:invite', points: 20, durationSeconds: 60 * 60 },
   testSend: { keyPrefix: 'rl:test', points: 20, durationSeconds: 60 * 60 },
   passwordReset: { keyPrefix: 'rl:reset', points: 5, durationSeconds: 60 * 60 },
+  aiAssist: { keyPrefix: 'rl:ai', points: 30, durationSeconds: 60 * 60 },
 } as const satisfies Record<string, RateLimitPolicy>;
 
 export class RateLimiter {

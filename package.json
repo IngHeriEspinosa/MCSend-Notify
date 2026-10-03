@@ -38,6 +38,7 @@
     "postinstall": "prisma generate"
   },
   "dependencies": {
+    "@anthropic-ai/sdk": "0.131.0",
     "@auth/prisma-adapter": "2.11.3",
     "@aws-sdk/client-s3": "3.1144.0",
     "@aws-sdk/client-sesv2": "3.1144.0",
@@ -55,6 +56,7 @@
     "@prisma/adapter-pg": "7.10.0",
     "@prisma/client": "7.10.0",
     "bullmq": "6.3.11",
+    "fast-xml-parser": "5.11.2",
     "file-type": "22.1.1",
     "ioredis": "6.0.0",
     "juice": "12.2.0",

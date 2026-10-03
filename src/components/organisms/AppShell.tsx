@@ -7,10 +7,12 @@
  */
 import AlternateEmailOutlined from '@mui/icons-material/AlternateEmailOutlined';
 import AppsOutlined from '@mui/icons-material/AppsOutlined';
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import ArticleOutlined from '@mui/icons-material/ArticleOutlined';
 import BrushOutlined from '@mui/icons-material/BrushOutlined';
 import ContactsOutlined from '@mui/icons-material/ContactsOutlined';
 import DashboardOutlined from '@mui/icons-material/DashboardOutlined';
+import FactCheckOutlined from '@mui/icons-material/FactCheckOutlined';
 import FilterAltOutlined from '@mui/icons-material/FilterAltOutlined';
 import GroupOutlined from '@mui/icons-material/GroupOutlined';
 import HistoryOutlined from '@mui/icons-material/HistoryOutlined';
@@ -21,7 +23,9 @@ import ListAltOutlined from '@mui/icons-material/ListAltOutlined';
 import MailOutlined from '@mui/icons-material/MailOutlined';
 import LogoutOutlined from '@mui/icons-material/LogoutOutlined';
 import MenuOutlined from '@mui/icons-material/MenuOutlined';
+import NewReleasesOutlined from '@mui/icons-material/NewReleasesOutlined';
 import NotificationsActiveOutlined from '@mui/icons-material/NotificationsActiveOutlined';
+import ScheduleSendOutlined from '@mui/icons-material/ScheduleSendOutlined';
 import SendOutlined from '@mui/icons-material/SendOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
@@ -31,6 +35,7 @@ import Avatar from '@mui/material/Avatar';
 import Button from '@mui/material/Button';
 import Divider from '@mui/material/Divider';
 import Drawer from '@mui/material/Drawer';
+import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
 import ListItemButton from '@mui/material/ListItemButton';
@@ -51,17 +56,21 @@ import { ThemeToggle } from '@/components/molecules/ThemeToggle';
 
 export type NavIcon =
   | 'dashboard'
+  | 'approvals'
   | 'contacts'
   | 'lists'
   | 'segments'
   | 'import'
   | 'campaigns'
+  | 'automations'
+  | 'changelog'
   | 'templates'
   | 'documents'
   | 'general'
   | 'branding'
   | 'providers'
   | 'senders'
+  | 'ai'
   | 'members'
   | 'fields'
   | 'tags'
@@ -71,17 +80,21 @@ export type NavIcon =
 
 const ICONS: Record<NavIcon, ReactElement> = {
   dashboard: <DashboardOutlined />,
+  approvals: <FactCheckOutlined />,
   contacts: <ContactsOutlined />,
   lists: <ListAltOutlined />,
   segments: <FilterAltOutlined />,
   import: <UploadFileOutlined />,
   campaigns: <SendOutlined />,
+  automations: <ScheduleSendOutlined />,
+  changelog: <NewReleasesOutlined />,
   templates: <MailOutlined />,
   documents: <ArticleOutlined />,
   general: <SettingsOutlined />,
   branding: <BrushOutlined />,
   providers: <HubOutlined />,
   senders: <AlternateEmailOutlined />,
+  ai: <AutoAwesomeOutlined />,
   members: <GroupOutlined />,
   fields: <TuneOutlined />,
   tags: <LabelOutlined />,
@@ -93,6 +106,8 @@ const ICONS: Record<NavIcon, ReactElement> = {
 export interface NavItem {
   key: NavIcon;
   href: string;
+  /** Contador visible junto a la opción (p. ej. aprobaciones pendientes). */
+  badge?: number;
 }
 
 export interface NavGroup {
@@ -163,6 +178,14 @@ export function AppShell({ tenant, tenants, user, navigation, children }: AppShe
               >
                 <ListItemIcon className="min-w-10">{ICONS[item.key]}</ListItemIcon>
                 <ListItemText primary={t(`Nav.${item.key}`)} />
+                {item.badge ? (
+                  <Chip
+                    size="small"
+                    color="warning"
+                    label={item.badge}
+                    aria-label={t('Nav.pendingCount', { count: item.badge })}
+                  />
+                ) : null}
               </ListItemButton>
             ))}
           </List>

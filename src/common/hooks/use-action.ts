@@ -7,6 +7,7 @@
 import { useTranslations } from 'next-intl';
 import { useCallback, useState, useTransition } from 'react';
 import type { ActionError, ActionResult } from '@/common/utils/action-result';
+import { isErrorReason } from '@/common/utils/error-reasons';
 import { useNotify } from './notifications';
 
 export function useActionErrorMessage() {
@@ -25,6 +26,7 @@ export function useActionErrorMessage() {
       if (reason === 'PROVIDER_IN_USE') return t('providerInUse');
       if (reason === 'SENDER_MISSING') return t('senderMissing');
       if (error.code === 'UNEXPECTED') return t('UNEXPECTED', { traceId: error.traceId ?? '-' });
+      if (isErrorReason(reason)) return t(`reasons.${reason}`);
       return t(error.code);
     },
     [t],

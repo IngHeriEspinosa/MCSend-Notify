@@ -52,6 +52,10 @@ export const serverEnvSchema = z
         .optional(),
     ),
     SYSTEM_MAIL_FROM: z.string().min(3).default('MC Send Notify <noreply@mcsend.local>'),
+    /** Clave de Anthropic de la plataforma (IA para los tenants que no tengan clave propia). */
+    PLATFORM_AI_ANTHROPIC_API_KEY: optionalString,
+    /** Tope de gasto mensual en USD por tenant con la IA de la plataforma. */
+    PLATFORM_AI_MONTHLY_BUDGET_USD: z.coerce.number().min(0).max(100_000).default(50),
     MCLOG_URL: z.preprocess(emptyToUndefined, z.url().optional()),
     MCLOG_API_KEY: optionalString,
     MCLOG_APPLICATION: z.string().min(1).default('mc-send-notify'),

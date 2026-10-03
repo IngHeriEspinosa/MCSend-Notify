@@ -2,6 +2,7 @@
  * Campaña: estados, transiciones permitidas, audiencia y esquemas de entrada.
  *
  * DRAFT → SCHEDULED → DISPATCHING → SENDING → SENT
+ * DRAFT → PENDING_APPROVAL → SCHEDULED (aprobada) | DRAFT (rechazada) | CANCELLED (caducada)
  *                 ↘ DRAFT (desprogramar)   ↘ PAUSED ↔ (DISPATCHING | SENDING)
  * Cualquier estado activo → CANCELLED. Un error irrecuperable al despachar → FAILED.
  */
@@ -11,6 +12,7 @@ import type { TemplateIssue, TemplateIssueSeverity } from '@/core/templates/temp
 
 export const CAMPAIGN_STATUSES = [
   'DRAFT',
+  'PENDING_APPROVAL',
   'SCHEDULED',
   'DISPATCHING',
   'SENDING',
@@ -22,7 +24,8 @@ export const CAMPAIGN_STATUSES = [
 export type CampaignStatus = (typeof CAMPAIGN_STATUSES)[number];
 
 const TRANSITIONS: Record<CampaignStatus, readonly CampaignStatus[]> = {
-  DRAFT: ['SCHEDULED'],
+  DRAFT: ['SCHEDULED', 'PENDING_APPROVAL'],
+  PENDING_APPROVAL: ['SCHEDULED', 'DRAFT', 'CANCELLED'],
   SCHEDULED: ['DRAFT', 'DISPATCHING', 'CANCELLED'],
   DISPATCHING: ['SENDING', 'PAUSED', 'CANCELLED', 'FAILED'],
   SENDING: ['SENT', 'PAUSED', 'CANCELLED'],

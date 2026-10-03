@@ -16,6 +16,8 @@ Autor: **Ing. Heri Espinosa**
 | [0008](adr/0008-sending-pipeline.md)              | Cola de envío única con ritmo GCRA y cupos en Redis; idempotencia en la base de datos      |
 | [0009](adr/0009-tracking-unsubscribe-webhooks.md) | Seguimiento propio firmado, baja en un clic (RFC 8058) y webhooks Resend/SES verificados   |
 | [0010](adr/0010-secrets-encryption.md)            | Credenciales de proveedores cifradas con AES-256-GCM, AAD por fila y rotación de claves    |
+| [0011](adr/0011-ai-integration.md)                | IA con el SDK oficial de Claude y adaptador OpenAI-compatible; guardrails y presupuesto    |
+| [0012](adr/0012-automations-approvals.md)         | Automatizaciones idempotentes con aprobación humana por sesión y POST                      |
 
 Otras decisiones de la Fase 0:
 
@@ -54,6 +56,17 @@ Decisiones de la Fase 3:
 - **Correo del sistema** (invitaciones y recuperación de contraseña) por un SMTP de plataforma (`SYSTEM_MAIL_SMTP_URL`), independiente de los proveedores de los tenants.
 - **Sin estado `PENDING_APPROVAL`** en las campañas: la aprobación llega con las automatizaciones de IA (Fase 4).
 
+Decisiones de la Fase 4:
+
+- **SDK oficial `@anthropic-ai/sdk` para Claude y `fetch` para OpenAI-compatible**, en lugar de Vercel AI SDK. Lo decidió el usuario y supone una dependencia en lugar de cuatro (ADR 0011).
+- **Presupuesto con la suma de `ai_usage`**, sin contador en Redis: es una fuente única y duradera, y la consulta usa el índice `(tenant_id, created_at)`.
+- **Asistencia síncrona en la Server Action**, sin la cola `ai-generate`: Next.js autohospedado no corta las acciones y el SDK tiene un tiempo máximo de 120 s. Las automatizaciones sí van por la cola del worker.
+- **Programación por presets** (diaria, semanal, mensual) en lugar de cron libre: se evitan expresiones inválidas y no hace falta `cronstrue` para describirlas.
+- **Fuentes dentro de la definición** de la automatización, sin tabla `ContentSource`.
+- **Aprobación por enlace directo con sesión**, sin token: la decisión es un POST y la sesión ya autoriza.
+- **Texto de página web sin conversión a artículo** (sanitize-html con lista de etiquetas no textuales) en lugar de Readability + linkedom: dos dependencias menos y un resultado suficiente para la IA.
+- **Texto alternativo con IA, webhooks salientes y disparadores por evento** pospuestos a la Fase 5.
+
 ## 2. Variables de entorno
 
 [src/common/config/env.ts](../src/common/config/env.ts) valida las variables con Zod. Lo hace de forma perezosa: la app las valida al arrancar desde `instrumentation.ts` y el worker en su bootstrap. Una configuración inválida detiene el proceso con un mensaje que nombra la variable.
@@ -75,6 +88,8 @@ Decisiones de la Fase 3:
 | `SSRF_ALLOW_PRIVATE`                                                   | No (`false`)                 | Permite hosts SMTP en redes privadas (solo desarrollo, para Mailpit)                       |
 | `SYSTEM_MAIL_SMTP_URL`                                                 | No                           | SMTP de plataforma (`smtp://` o `smtps://`) para invitaciones y recuperación de contraseña |
 | `SYSTEM_MAIL_FROM`                                                     | No                           | Remitente del correo del sistema                                                           |
+| `PLATFORM_AI_ANTHROPIC_API_KEY`                                        | No                           | Clave de Anthropic de la plataforma (opción «IA de la plataforma»)                         |
+| `PLATFORM_AI_MONTHLY_BUDGET_USD`                                       | No (`50`)                    | Tope de gasto mensual por tenant con la IA de la plataforma                                |
 | `MCLOG_URL` y `MCLOG_API_KEY`                                          | No (juntas)                  | Envío de logs `warn` o superiores a MCLog                                                  |
 | `MCLOG_APPLICATION`                                                    | No (`mc-send-notify`)        | Nombre de aplicación en MCLog                                                              |
 
@@ -203,6 +218,17 @@ Tablas añadidas en la Fase 1:
 
 Un trigger impide `UPDATE` y `DELETE` en `audit_logs`.
 
+Tablas añadidas en la Fase 4:
+
+- `ai_settings`: una por tenant, con origen, proveedor, clave cifrada (AAD `tenant:ai_settings:id`), URL, modelos, presupuesto, precios propios y estado;
+- `ai_usage`: cada llamada con propósito, modelo, tokens (incluida la caché), coste en micro-USD, latencia y resultado;
+- `changelog_entries`: novedades, únicas por `(tenant_id, external_id)`, con la ejecución que las consumió;
+- `automations`: programación (preset y zona horaria) y definición validadas con Zod;
+- `automation_runs`: únicas por `(automation_id, idempotency_key)`, con resumen de fuentes, enlaces eliminados, plantilla y campaña;
+- `approval_requests`: una por ejecución, con aprobadores, caducidad, acción al caducar y decisión.
+
+El enum de campañas añade `PENDING_APPROVAL`.
+
 Tablas añadidas en la Fase 3:
 
 - `email_provider_configs`: tipo, ajustes sin secretos, `credentials_enc` (AES-GCM), `endpoint_token` único para webhooks, límites (`rate_limit_per_second` en `double precision` para ritmos como 0,5/s), estado y `config_version`;
@@ -253,37 +279,43 @@ La respuesta pública solo indica `up` o `down`. El detalle del error va a los l
 
 ## 6. Seguridad (OWASP)
 
-| Control                 | Implementación                                                                                                                                      |
-| ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción            |
-| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                          |
-| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                        |
-| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                           |
-| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                     |
-| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                  |
-| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                     |
-| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                   |
-| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                  |
-| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                       |
-| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                       |
-| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                       |
-| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                   |
-| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas       |
-| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                         |
-| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                     |
-| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea       |
-| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`     |
-| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp               |
-| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                  |
-| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                        |
-| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                              |
-| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                    |
-| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com` |
-| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                      |
-| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                   |
-| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                   |
-| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                      |
-| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                |
+| Control                 | Implementación                                                                                                                                        |
+| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción              |
+| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                            |
+| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                          |
+| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                             |
+| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                       |
+| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                    |
+| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                       |
+| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                     |
+| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                    |
+| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                         |
+| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                         |
+| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                         |
+| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                     |
+| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas         |
+| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                           |
+| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                       |
+| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea         |
+| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`       |
+| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp                 |
+| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                    |
+| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                          |
+| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                                |
+| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                      |
+| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com`   |
+| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                        |
+| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                     |
+| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                     |
+| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                        |
+| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                  |
+| Inyección de prompts    | Fuentes como datos `<source>`; lista blanca de enlaces citables; traducción por unidades; la IA nunca envía; aprobación humana por defecto (ADR 0011) |
+| SSRF en fuentes de IA   | `safeFetch`: solo hosts públicos y puertos 80/443, DNS fijado, metadatos bloqueados siempre, 3 redirecciones, 2 MB, 10 s; XML sin DOCTYPE             |
+| Claves de IA            | Cifradas con AAD por fila; nunca vuelven a la interfaz; no se reenvían a otro origen en redirecciones                                                 |
+| Coste de IA             | Presupuesto mensual por tenant, tope de la plataforma, 30 peticiones por hora y usuario, registro de cada llamada                                     |
+| Aprobaciones            | Sesión + POST (los escáneres de enlaces no deciden); solo aprobadores con permiso de envío; versión de plantilla congelada                            |
+| Privacidad con IA       | Al modelo solo llegan las fuentes y los textos de la tarea; nunca la lista de contactos (comprobado en la E2E)                                        |
 
 Decisión sobre estilos: `style-src` permite `'unsafe-inline'` porque MUI, Emotion y React usan atributos `style`. El riesgo de inyección de estilos es bajo frente al de scripts, que sí exige nonce.
 
@@ -359,6 +391,19 @@ En la Fase 3:
   - panel con gráfica y tabla alternativa, e inglés;
   - invitación por correo, centro de preferencias, recuperación de contraseña de un solo uso y móvil sin desbordamiento.
 
+En la Fase 4 (con un servidor simulado compatible con OpenAI, porque no hay clave real de Anthropic):
+
+- **Flujo del DoD en Chrome _headless_ contra las imágenes de producción:**
+  - configuración de IA propia y prueba de conexión;
+  - API de novedades con clave (alta idempotente y 401 con clave falsa);
+  - automatización activada y ejecutada: borrador, correo de aprobación, revisión con sesión, aprobación y envío a 22 clientes;
+  - el borrador simulado incluía un botón y un enlace a `evil.example`: no aparecen ni en la vista previa ni en el correo enviado.
+- **SSRF:** las fuentes `http://169.254.169.254/...` y `http://localhost:8025/` se rechazan con mensaje traducido.
+- **Resto de funciones de IA:** borrador desde el editor (2 enlaces eliminados), asuntos con avisos, traducción, segmento en lenguaje natural, resumen de resultados.
+- **Presupuesto agotado** rechazado con mensaje traducido; uso registrado por propósito.
+- **Privacidad:** se revisaron los prompts recibidos por el modelo y no contenían datos de contactos.
+- **Unitarios del SDK:** con un `fetch` falso inyectado se comprueba que la petición no lleva `temperature`, `thinking` ni `tool_choice`, que `effort` solo va en los modelos que lo admiten y que `refusal` y `max_tokens` se tratan.
+
 El test del matcher del proxy compila el patrón con la misma función que usa Next.js. Next.js elimina las barras invertidas, y un `\.` mal puesto dejaba sin CSP ni idioma a todas las páginas salvo la raíz.
 
 ## 9. Escalabilidad
@@ -370,20 +415,25 @@ El test del matcher del proxy compila el patrón con la misma función que usa N
 
 ## 10. Problemas conocidos y soluciones
 
-| Síntoma                                                       | Causa                                             | Solución                                                      |
-| ------------------------------------------------------------- | ------------------------------------------------- | ------------------------------------------------------------- |
-| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                          | Copiar la CA raíz a `docker/certs/`                           |
-| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h              | Fijar la versión anterior                                     |
-| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación       | Decidir `true` o `false` en `allowBuilds`                     |
-| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto                  | Cambiar el puerto en `compose.override.yaml` y en `.env`      |
-| Readiness con `worker: down`                                  | El worker no está en marcha                       | `pnpm dev:worker` o `docker compose up worker`                |
-| Una importación se queda en "En cola"                         | El worker no está en marcha                       | Iniciar el worker; el job se procesa al arrancar              |
-| `pnpm test:int` falla al conectar                             | `postgres-test` no está levantado                 | `docker compose --profile test up -d --wait postgres-test`    |
-| Documento en `FAILED` con `TOOLS_UNAVAILABLE`                 | El worker no encuentra poppler                    | Ejecutar el worker en Docker o definir `POPPLER_BIN_DIR`      |
-| Documento en `FAILED` con `CONVERSION_FAILED`                 | Gotenberg caído o archivo dañado                  | Revisar Gotenberg y pulsar **Reintentar**                     |
-| Acentos incorrectos en la miniatura de un HTML                | HTML sin `charset` (versiones anteriores)         | Reintentar: el conversor ya declara UTF-8 automáticamente     |
-| Campaña en pausa con `PROVIDER_ERROR`                         | El proveedor rechazó credenciales o configuración | Corregir el proveedor, **Probar conexión** y **Reanudar**     |
-| «Host bloqueado» al probar un SMTP local                      | Protección SSRF                                   | En desarrollo, `SSRF_ALLOW_PRIVATE=true`; nunca en producción |
-| Entregas en `SENDING` tras una caída del worker               | El worker murió a mitad de un envío               | Se recuperan solas a los 10 minutos                           |
-| No llegan invitaciones ni correos de recuperación             | Falta `SYSTEM_MAIL_SMTP_URL`                      | Configurar el SMTP de plataforma y reiniciar app y worker     |
-| Webhook de Resend con 401                                     | Secreto `whsec_` distinto del de Resend           | Copiar el secreto del panel de Resend en el proveedor         |
+| Síntoma                                                       | Causa                                                                | Solución                                                                          |
+| ------------------------------------------------------------- | -------------------------------------------------------------------- | --------------------------------------------------------------------------------- |
+| `UNABLE_TO_GET_ISSUER_CERT_LOCALLY` en `docker compose build` | Inspección TLS de la red                                             | Copiar la CA raíz a `docker/certs/`                                               |
+| `ERR_PNPM_MINIMUM_RELEASE_AGE_VIOLATION`                      | Versión publicada hace menos de 24 h                                 | Fijar la versión anterior                                                         |
+| `ERR_PNPM_IGNORED_BUILDS`                                     | Dependencia nueva con script de instalación                          | Decidir `true` o `false` en `allowBuilds`                                         |
+| `Bind for 0.0.0.0:5452 failed`                                | Puerto ocupado por otro proyecto                                     | Cambiar el puerto en `compose.override.yaml` y en `.env`                          |
+| Readiness con `worker: down`                                  | El worker no está en marcha                                          | `pnpm dev:worker` o `docker compose up worker`                                    |
+| Una importación se queda en "En cola"                         | El worker no está en marcha                                          | Iniciar el worker; el job se procesa al arrancar                                  |
+| `pnpm test:int` falla al conectar                             | `postgres-test` no está levantado                                    | `docker compose --profile test up -d --wait postgres-test`                        |
+| Documento en `FAILED` con `TOOLS_UNAVAILABLE`                 | El worker no encuentra poppler                                       | Ejecutar el worker en Docker o definir `POPPLER_BIN_DIR`                          |
+| Documento en `FAILED` con `CONVERSION_FAILED`                 | Gotenberg caído o archivo dañado                                     | Revisar Gotenberg y pulsar **Reintentar**                                         |
+| Acentos incorrectos en la miniatura de un HTML                | HTML sin `charset` (versiones anteriores)                            | Reintentar: el conversor ya declara UTF-8 automáticamente                         |
+| Campaña en pausa con `PROVIDER_ERROR`                         | El proveedor rechazó credenciales o configuración                    | Corregir el proveedor, **Probar conexión** y **Reanudar**                         |
+| «Host bloqueado» al probar un SMTP local                      | Protección SSRF                                                      | En desarrollo, `SSRF_ALLOW_PRIVATE=true`; nunca en producción                     |
+| Entregas en `SENDING` tras una caída del worker               | El worker murió a mitad de un envío                                  | Se recuperan solas a los 10 minutos                                               |
+| No llegan invitaciones ni correos de recuperación             | Falta `SYSTEM_MAIL_SMTP_URL`                                         | Configurar el SMTP de plataforma y reiniciar app y worker                         |
+| Webhook de Resend con 401                                     | Secreto `whsec_` distinto del de Resend                              | Copiar el secreto del panel de Resend en el proveedor                             |
+| «La IA no está configurada»                                   | Sin `ai_settings` o IA de plataforma sin clave                       | Configurar en Configuración › IA (o `PLATFORM_AI_ANTHROPIC_API_KEY`)              |
+| Fuente rechazada como «no permitida»                          | URL privada, reservada o con puerto no estándar                      | Usar una URL pública por http(s) en el puerto 80 o 443                            |
+| Ollama local no responde desde Docker                         | Host privado bloqueado (SSRF)                                        | En desarrollo, `SSRF_ALLOW_PRIVATE=true` y `http://host.docker.internal:11434/v1` |
+| Una ejecución queda «Omitida»                                 | No había novedades nuevas en el periodo                              | Publicar novedades o desactivar «No enviar si no hay novedades»                   |
+| `pnpm audit` informa de `braces` (High)                       | Advisory sin versión parcheada publicada (solo herramientas de lint) | Volver a auditar cuando exista `braces@3.0.4`                                     |

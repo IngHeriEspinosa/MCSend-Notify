@@ -9,31 +9,16 @@
  */
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
-import { errorResponse } from '@/app/_server/api-guards';
+import { authenticateApiRequest, errorResponse } from '@/app/_server/api-guards';
 import { contactInputSchema, contactQuerySchema } from '@/core/contacts/contact';
 import { normalizeEmail } from '@/core/identity/email';
 import { isDomainError } from '@/core/shared/domain-error';
-import type { TenantContext } from '@/core/shared/tenant-context';
-import { getLogger, getRateLimiter } from '@/infrastructure/container';
+import { getLogger } from '@/infrastructure/container';
 import { useCases } from '@/infrastructure/use-case-factory';
 
 export const dynamic = 'force-dynamic';
 
 const MAX_BODY_BYTES = 64 * 1024;
-
-function readApiKey(request: NextRequest): string | null {
-  const header = request.headers.get('authorization');
-  if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length).trim();
-  return request.headers.get('x-api-key');
-}
-
-async function authenticate(request: NextRequest): Promise<TenantContext> {
-  const key = readApiKey(request);
-  const context = await useCases.authenticateApiKey().execute(key ?? '');
-  if (context.actor.type === 'apiKey')
-    await getRateLimiter('publicApi').consume(context.actor.apiKeyId);
-  return context;
-}
 
 function handleError(error: unknown) {
   if (isDomainError(error)) return errorResponse(error.code, error.details);
@@ -45,7 +30,7 @@ function handleError(error: unknown) {
 
 export async function GET(request: NextRequest) {
   try {
-    const context = await authenticate(request);
+    const context = await authenticateApiRequest(request);
     const email = z.email().parse(request.nextUrl.searchParams.get('email'));
     const page = await useCases
       .listContacts()
@@ -61,7 +46,7 @@ export async function GET(request: NextRequest) {
 
 export async function POST(request: NextRequest) {
   try {
-    const context = await authenticate(request);
+    const context = await authenticateApiRequest(request);
     if (Number(request.headers.get('content-length') ?? '0') > MAX_BODY_BYTES) {
       return errorResponse('PAYLOAD_TOO_LARGE');
     }

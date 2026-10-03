@@ -2,7 +2,15 @@
  * Construcción de los casos de uso con sus adaptadores (inyección por constructor).
  * La presentación (Server Actions, route handlers) y el worker solo dependen de este módulo.
  */
+import { ContentCollector } from '@/core/ai/sources';
+import { AiAssistUseCase } from '@/core/ai/use-cases/ai-assist.use-cases';
+import { AiService } from '@/core/ai/use-cases/ai-service';
+import { ManageAiSettingsUseCase } from '@/core/ai/use-cases/ai-settings.use-cases';
 import { AuthenticateApiKeyUseCase, ManageApiKeysUseCase } from '@/core/api-keys/api-keys';
+import { ApprovalsUseCase } from '@/core/automations/use-cases/approvals.use-cases';
+import { ManageAutomationsUseCase } from '@/core/automations/use-cases/automations.use-cases';
+import { RunAutomationUseCase } from '@/core/automations/use-cases/run-automation.use-case';
+import { ManageChangelogUseCase } from '@/core/changelog/changelog';
 import { ListAuditLogUseCase } from '@/core/audit/audit-log';
 import {
   ManageContactFieldsUseCase,
@@ -87,6 +95,12 @@ import {
   UpdateTenantSettingsUseCase,
 } from '@/core/tenants/use-cases';
 import {
+  getAppLinks,
+  getAutomationScheduler,
+  getLanguageModelFactory,
+  getLinkFinder,
+  getPlatformAiConfig,
+  getSourceFetcher,
   getCampaignQueue,
   getContactImportQueue,
   getDnsChecker,
@@ -132,6 +146,17 @@ import {
   PrismaTopicRepository,
 } from './persistence/prisma/repositories/audience.prisma-repositories';
 import { SqlAudienceResolver } from './persistence/prisma/repositories/audience.sql-resolver';
+import {
+  PrismaAiSettingsRepository,
+  PrismaAiUsageRepository,
+} from './persistence/prisma/repositories/ai.prisma-repositories';
+import {
+  PrismaApprovalRepository,
+  PrismaAutomationRepository,
+  PrismaAutomationRunRepository,
+  PrismaMemberDirectory,
+} from './persistence/prisma/repositories/automation.prisma-repositories';
+import { PrismaChangelogRepository } from './persistence/prisma/repositories/changelog.prisma-repository';
 import { PrismaCampaignRepository } from './persistence/prisma/repositories/campaign.prisma-repository';
 import { PrismaContactRepository } from './persistence/prisma/repositories/contact.prisma-repository';
 import { PrismaDeliveryRepository } from './persistence/prisma/repositories/delivery.prisma-repository';
@@ -206,6 +231,22 @@ const repositories = {
     memoize('repo.inboundEvents', () => new PrismaInboundEventRepository(getTenantClients())),
   passwordResets: () =>
     memoize('repo.passwordResets', () => new PrismaPasswordResetTokenRepository(getPrisma())),
+  aiSettings: () =>
+    memoize('repo.aiSettings', () => new PrismaAiSettingsRepository(getTenantClients())),
+  aiUsage: () => memoize('repo.aiUsage', () => new PrismaAiUsageRepository(getTenantClients())),
+  changelog: () =>
+    memoize('repo.changelog', () => new PrismaChangelogRepository(getTenantClients())),
+  automations: () =>
+    memoize(
+      'repo.automations',
+      () => new PrismaAutomationRepository(getPrisma(), getTenantClients()),
+    ),
+  automationRuns: () =>
+    memoize('repo.automationRuns', () => new PrismaAutomationRunRepository(getTenantClients())),
+  approvals: () =>
+    memoize('repo.approvals', () => new PrismaApprovalRepository(getPrisma(), getTenantClients())),
+  members: () =>
+    memoize('repo.memberDirectory', () => new PrismaMemberDirectory(getTenantClients())),
 };
 
 const services = {
@@ -319,6 +360,34 @@ function campaignDeps(): CampaignUseCaseDeps {
     audit: repositories.audit(),
     clock: systemClock,
   };
+}
+
+function aiService(): AiService {
+  return memoize(
+    'svc.aiService',
+    () =>
+      new AiService({
+        settings: repositories.aiSettings(),
+        usage: repositories.aiUsage(),
+        factory: getLanguageModelFactory(),
+        cipher: getSecretCipher(),
+        platform: getPlatformAiConfig(),
+        clock: systemClock,
+      }),
+  );
+}
+
+function contentCollector(): ContentCollector {
+  return memoize(
+    'svc.contentCollector',
+    () =>
+      new ContentCollector({
+        fetcher: getSourceFetcher(),
+        documents: repositories.documents(),
+        changelog: repositories.changelog(),
+        clock: systemClock,
+      }),
+  );
 }
 
 /** Casos de uso listos para usar. Cada uno se construye una sola vez por proceso. */
@@ -610,6 +679,99 @@ export const useCases = {
           resets: repositories.passwordResets(),
           tokens: services.tokens(),
           hasher: services.hasher(),
+          audit: repositories.audit(),
+          clock: systemClock,
+        }),
+    ),
+
+  // IA, novedades, automatizaciones y aprobaciones
+  aiSettings: () =>
+    memoize(
+      'uc.aiSettings',
+      () =>
+        new ManageAiSettingsUseCase({
+          settings: repositories.aiSettings(),
+          usage: repositories.aiUsage(),
+          ai: aiService(),
+          cipher: getSecretCipher(),
+          platform: getPlatformAiConfig(),
+          audit: repositories.audit(),
+          clock: systemClock,
+          ids: cryptoIdGenerator,
+        }),
+    ),
+  aiAssist: () =>
+    memoize(
+      'uc.aiAssist',
+      () =>
+        new AiAssistUseCase({
+          ai: aiService(),
+          collector: contentCollector(),
+          clock: systemClock,
+          links: getLinkFinder(),
+          branding: repositories.tenants(),
+          fields: repositories.fields(),
+          lists: repositories.lists(),
+          tags: repositories.tags(),
+          segments: useCases.segments(),
+          campaigns: useCases.campaigns(),
+        }),
+    ),
+  changelog: () =>
+    memoize(
+      'uc.changelog',
+      () =>
+        new ManageChangelogUseCase({
+          changelog: repositories.changelog(),
+          audit: repositories.audit(),
+          clock: systemClock,
+        }),
+    ),
+  automations: () =>
+    memoize(
+      'uc.automations',
+      () =>
+        new ManageAutomationsUseCase({
+          automations: repositories.automations(),
+          runs: repositories.automationRuns(),
+          scheduler: getAutomationScheduler(),
+          members: repositories.members(),
+          senders: repositories.senders(),
+          audit: repositories.audit(),
+          ids: cryptoIdGenerator,
+        }),
+    ),
+  runAutomation: () =>
+    memoize(
+      'uc.runAutomation',
+      () =>
+        new RunAutomationUseCase({
+          automations: repositories.automations(),
+          runs: repositories.automationRuns(),
+          approvals: repositories.approvals(),
+          collector: contentCollector(),
+          assist: useCases.aiAssist(),
+          templates: repositories.templates(),
+          campaignRepo: repositories.campaigns(),
+          campaigns: useCases.campaigns(),
+          changelog: repositories.changelog(),
+          members: repositories.members(),
+          mail: getSystemMailQueue(),
+          links: getAppLinks(),
+          branding: repositories.tenants(),
+          audit: repositories.audit(),
+          clock: systemClock,
+        }),
+    ),
+  approvals: () =>
+    memoize(
+      'uc.approvals',
+      () =>
+        new ApprovalsUseCase({
+          approvals: repositories.approvals(),
+          runs: repositories.automationRuns(),
+          campaigns: useCases.campaigns(),
+          templates: repositories.templates(),
           audit: repositories.audit(),
           clock: systemClock,
         }),

@@ -8,6 +8,10 @@
 import { createMCLogClient } from '@multicomputos-srl/mclog';
 import type { Redis } from 'ioredis';
 import { getEncryptionEnv, getServerEnv, getSigningEnv } from '@/common/config/env';
+import type { PlatformAiConfig } from '@/core/ai/ports';
+import { HttpSourceFetcher } from './ai/http-source-fetcher';
+import { DefaultLanguageModelFactory } from './ai/language-model-factory';
+import { LinkifyLinkFinder } from './ai/linkify-link-finder';
 import { AesGcmSecretCipher } from './crypto/aes-gcm-secret-cipher';
 import { NodeDnsChecker } from './dns/dns-checker';
 import { MagicBytesFileInspector } from './documents/file-inspector';
@@ -26,9 +30,11 @@ import { WorkerHeartbeat, workerHeartbeatHealthCheck } from './observability/wor
 import { createPrismaClient, type PrismaClient } from './persistence/prisma/client';
 import { TenantClientCache } from './persistence/prisma/tenant-scope.extension';
 import { createRedisConnection } from './queue/connection';
+import { AbsoluteAppLinks } from './notifications/app-links';
 import { SmtpSystemMailer } from './notifications/system-mailer';
 import { PrismaProviderConfigRepository } from './persistence/prisma/repositories/provider.prisma-repositories';
 import {
+  BullAutomationScheduler,
   BullCampaignQueue,
   BullContactImportQueue,
   BullDocumentQueue,
@@ -59,6 +65,7 @@ interface ContainerState {
   campaignQueue?: BullCampaignQueue;
   providerEventQueue?: BullProviderEventQueue;
   systemMailQueue?: BullSystemMailQueue;
+  automationScheduler?: BullAutomationScheduler;
   providerGateway?: CachingEmailProviderGateway;
   rateLimiters?: Map<keyof typeof RATE_LIMITS, RateLimiter>;
   memo?: Map<string, unknown>;
@@ -252,6 +259,39 @@ export function getSystemMailer(): SmtpSystemMailer {
     const env = getServerEnv();
     return new SmtpSystemMailer(env.SYSTEM_MAIL_SMTP_URL, env.SYSTEM_MAIL_FROM);
   });
+}
+
+/** Adaptadores de modelos de IA (Claude con el SDK oficial u OpenAI-compatible). */
+export function getLanguageModelFactory(): DefaultLanguageModelFactory {
+  return memoize(
+    'languageModelFactory',
+    () => new DefaultLanguageModelFactory({ allowPrivateHosts: getServerEnv().SSRF_ALLOW_PRIVATE }),
+  );
+}
+
+export function getPlatformAiConfig(): PlatformAiConfig {
+  const env = getServerEnv();
+  return {
+    apiKey: env.PLATFORM_AI_ANTHROPIC_API_KEY ?? null,
+    maxMonthlyBudgetUsd: env.PLATFORM_AI_MONTHLY_BUDGET_USD,
+  };
+}
+
+export function getSourceFetcher(): HttpSourceFetcher {
+  return memoize('sourceFetcher', () => new HttpSourceFetcher());
+}
+
+export function getLinkFinder(): LinkifyLinkFinder {
+  return memoize('linkFinder', () => new LinkifyLinkFinder());
+}
+
+export function getAutomationScheduler(): BullAutomationScheduler {
+  state.automationScheduler ??= new BullAutomationScheduler(getRedis());
+  return state.automationScheduler;
+}
+
+export function getAppLinks(): AbsoluteAppLinks {
+  return memoize('appLinks', () => new AbsoluteAppLinks(getServerEnv().APP_URL));
 }
 
 export function getRateLimiter(name: keyof typeof RATE_LIMITS): RateLimiter {

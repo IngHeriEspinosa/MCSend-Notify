@@ -29,6 +29,12 @@ export const TENANT_MODEL_RELATIONS = {
   Delivery: ['campaign', 'events'],
   DeliveryEvent: ['delivery'],
   InboundWebhookEvent: [],
+  AiSettings: ['tenant'],
+  AiUsage: ['tenant'],
+  ChangelogEntry: ['tenant'],
+  Automation: ['tenant', 'runs'],
+  AutomationRun: ['tenant', 'automation', 'approval'],
+  ApprovalRequest: ['tenant', 'run'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type TenantModelName = keyof typeof TENANT_MODEL_RELATIONS;

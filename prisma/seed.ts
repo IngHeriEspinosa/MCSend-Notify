@@ -2,6 +2,8 @@
  * Datos iniciales de desarrollo (idempotente: se puede ejecutar varias veces).
  * - Super-administrador con la contraseña SEED_ADMIN_PASSWORD (solo si aún no tiene una).
  * - MCSupport: tenant de demostración con campos, temas, listas, etiquetas, contactos y segmentos.
+ * - MCSupport: IA de la plataforma, novedades de ejemplo y la automatización "Resumen semanal"
+ *   (desactivada, con aprobación).
  * - MCLog: tenant vacío para probar la configuración desde cero.
  * Autor: Ing. Heri Espinosa
  */
@@ -14,6 +16,7 @@ import {
   type EncryptionEnv,
   type ServerEnv,
 } from '../src/common/config/env';
+import { automationDefinitionSchema } from '../src/core/automations/automation';
 import { providerCredentialsAad } from '../src/core/providers/use-cases/providers.use-cases';
 import { systemContext } from '../src/core/shared/tenant-context';
 import { templateBodySchema } from '../src/core/templates/email-content';
@@ -461,6 +464,112 @@ async function seedDemoSending(prisma: PrismaClient, tenantId: string, adminId: 
   }
 }
 
+const SEED_CHANGELOG = [
+  {
+    externalId: 'seed-3.2.0-sla',
+    version: '3.2.0',
+    category: 'FEATURE',
+    title: 'Panel de SLA en tiempo real',
+    bodyMd:
+      'Consulta el cumplimiento de los acuerdos de nivel de servicio por equipo y cliente. Más información en https://multicomputos.com/mcsupport/novedades/3-2',
+  },
+  {
+    externalId: 'seed-3.2.0-skills',
+    version: '3.2.0',
+    category: 'FEATURE',
+    title: 'Asignación automática por habilidades',
+    bodyMd: 'Los tickets se asignan al agente disponible con las habilidades necesarias.',
+  },
+  {
+    externalId: 'seed-3.2.0-teams',
+    version: '3.2.0',
+    category: 'IMPROVEMENT',
+    title: 'Notificaciones en Microsoft Teams',
+    bodyMd: 'Recibe avisos de tickets críticos en el canal de tu equipo.',
+  },
+  {
+    externalId: 'seed-3.2.1-export',
+    version: '3.2.1',
+    category: 'IMPROVEMENT',
+    title: 'Exportación de informes a Excel',
+    bodyMd: 'Todos los informes se pueden descargar en formato .xlsx.',
+  },
+  {
+    externalId: 'seed-3.2.1-fix-sla',
+    version: '3.2.1',
+    category: 'FIX',
+    title: 'Corregido el cálculo de SLA en días festivos',
+    bodyMd: '',
+  },
+  {
+    externalId: 'seed-3.2.1-tls',
+    version: '3.2.1',
+    category: 'SECURITY',
+    title: 'TLS 1.3 obligatorio en la API',
+    bodyMd: 'Las conexiones con versiones anteriores de TLS se rechazan.',
+  },
+] as const;
+
+/** IA de la plataforma, novedades de ejemplo y la automatización del resumen semanal (desactivada). */
+async function seedDemoAutomation(prisma: PrismaClient, tenantId: string, adminId: string) {
+  const budget = Number(process.env.PLATFORM_AI_MONTHLY_BUDGET_USD ?? '50') || 50;
+  await prisma.aiSettings.upsert({
+    where: { tenantId },
+    update: {},
+    create: {
+      tenantId,
+      source: 'PLATFORM',
+      kind: 'ANTHROPIC',
+      defaultModel: 'claude-opus-5-5',
+      fastModel: 'claude-haiku-4-5',
+      monthlyBudgetUsd: Math.min(20, budget),
+    },
+  });
+  const now = Date.now();
+  for (const [index, entry] of SEED_CHANGELOG.entries()) {
+    await prisma.changelogEntry.upsert({
+      where: { tenantId_externalId: { tenantId, externalId: entry.externalId } },
+      update: {},
+      create: { tenantId, ...entry, publishedAt: new Date(now - index * 86_400_000) },
+    });
+  }
+  const name = 'Resumen semanal de novedades';
+  if (await prisma.automation.findFirst({ where: { tenantId, name }, select: { id: true } }))
+    return;
+  const [list, sender, topic, tenant] = await Promise.all([
+    prisma.contactList.findFirst({ where: { tenantId, name: 'Clientes activos' } }),
+    prisma.senderIdentity.findFirst({ where: { tenantId, isDefault: true } }),
+    prisma.topic.findFirst({ where: { tenantId, key: 'weekly_digest' } }),
+    prisma.tenant.findUniqueOrThrow({ where: { id: tenantId } }),
+  ]);
+  if (!list || !sender) return;
+  await prisma.automation.create({
+    data: {
+      tenantId,
+      name,
+      enabled: false,
+      schedule: { frequency: 'weekly', weekday: 1, hour: 9, minute: 0 },
+      timezone: tenant.timezone,
+      createdById: adminId,
+      definition: automationDefinitionSchema.parse({
+        sources: [{ kind: 'changelog', days: 7, onlyNew: true }],
+        instructions:
+          'Resume las novedades de la semana agrupadas por tipo (nuevas funciones, mejoras, correcciones y seguridad). Tono cercano y conciso.',
+        tone: 'friendly',
+        locale: 'es',
+        audience: { listIds: [list.id], segmentIds: [], excludeListIds: [] },
+        topicId: topic?.id ?? null,
+        senderIdentityId: sender.id,
+        requiresApproval: true,
+        approverUserIds: [adminId],
+        approvalTimeoutHours: 48,
+        onTimeout: 'cancel',
+        skipWhenNoNews: true,
+      }),
+    },
+  });
+}
+
 async function main(): Promise<void> {
   const prisma = createPrismaClient(seedEnv.DATABASE_URL);
   try {
@@ -493,9 +602,10 @@ async function main(): Promise<void> {
     const deckId = await seedSampleDeck(prisma, mcsupport, admin.id);
     await seedDemoTemplates(prisma, mcsupport.id, admin.id, deckId);
     await seedDemoSending(prisma, mcsupport.id, admin.id);
+    await seedDemoAutomation(prisma, mcsupport.id, admin.id);
 
     console.log(
-      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos, plantillas, presentación, proveedor SMTP (Mailpit) y campaña de demostración, y MCLog vacío.`,
+      `Seed aplicado: administrador${passwordHash ? ' (contraseña inicial asignada)' : ''}, MCSupport con datos, plantillas, presentación, proveedor SMTP (Mailpit), campaña de demostración, novedades y automatización semanal, y MCLog vacío.`,
     );
   } finally {
     await prisma.$disconnect();

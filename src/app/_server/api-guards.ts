@@ -5,6 +5,9 @@
 import 'server-only';
 import { getServerEnv } from '@/common/config/env';
 import type { DomainError } from '@/core/shared/domain-error';
+import type { TenantContext } from '@/core/shared/tenant-context';
+import { getRateLimiter } from '@/infrastructure/container';
+import { useCases } from '@/infrastructure/use-case-factory';
 
 const STATUS_BY_CODE: Record<DomainError['code'], number> = {
   UNAUTHENTICATED: 401,
@@ -41,4 +44,22 @@ export function isSameOrigin(request: Request): boolean {
     request.headers.get('x-forwarded-proto') ?? new URL(request.url).protocol.replace(':', '');
   if (host) allowed.add(`${protocol}://${host}`);
   return allowed.has(origin);
+}
+
+function readApiKey(request: Request): string | null {
+  const header = request.headers.get('authorization');
+  if (header?.startsWith('Bearer ')) return header.slice('Bearer '.length).trim();
+  return request.headers.get('x-api-key');
+}
+
+/**
+ * API pública: autentica la clave (`Authorization: Bearer mcsn_...` o `x-api-key`) y aplica el
+ * límite de peticiones por clave. Devuelve el contexto del tenant de la clave.
+ */
+export async function authenticateApiRequest(request: Request): Promise<TenantContext> {
+  const context = await useCases.authenticateApiKey().execute(readApiKey(request) ?? '');
+  if (context.actor.type === 'apiKey') {
+    await getRateLimiter('publicApi').consume(context.actor.apiKeyId);
+  }
+  return context;
 }

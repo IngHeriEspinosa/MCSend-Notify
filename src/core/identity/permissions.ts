@@ -31,6 +31,12 @@ export const PERMISSIONS = [
   'sender:manage',
   'apikey:manage',
   'audit:read',
+  'ai:use',
+  'ai:manage',
+  'changelog:read',
+  'changelog:write',
+  'automation:read',
+  'automation:write',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -50,6 +56,11 @@ const EDITOR_PERMISSIONS: readonly Permission[] = [
   'campaign:read',
   'campaign:write',
   'campaign:send',
+  'ai:use',
+  'changelog:read',
+  'changelog:write',
+  'automation:read',
+  'automation:write',
 ];
 
 const VIEWER_PERMISSIONS: readonly Permission[] = [
@@ -59,6 +70,8 @@ const VIEWER_PERMISSIONS: readonly Permission[] = [
   'template:read',
   'document:read',
   'campaign:read',
+  'changelog:read',
+  'automation:read',
 ];
 
 export const ROLE_PERMISSIONS: Record<MembershipRole, ReadonlySet<Permission>> = {
@@ -71,6 +84,7 @@ export const ROLE_PERMISSIONS: Record<MembershipRole, ReadonlySet<Permission>> =
 const SCOPE_PERMISSIONS: Record<ApiScope, readonly Permission[]> = {
   'contacts:read': ['contact:read'],
   'contacts:write': ['contact:read', 'contact:write', 'list:write'],
+  'changelog:write': ['changelog:read', 'changelog:write'],
 };
 
 export function can(actor: Actor, permission: Permission): boolean {

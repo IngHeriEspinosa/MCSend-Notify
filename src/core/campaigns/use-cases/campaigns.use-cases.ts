@@ -306,8 +306,112 @@ export class ManageCampaignsUseCase {
     if (campaign.version !== input.expectedVersion) {
       throw new DomainError('CONFLICT', 'La campaña cambió', { reason: 'STALE_VERSION' });
     }
+    return this.freezeAndSchedule(context, campaign, {
+      from: 'DRAFT',
+      scheduledAt: input.scheduledAt,
+      confirmRecipients: input.confirmRecipients,
+      auditAction: 'campaign.scheduled',
+    });
+  }
+
+  /**
+   * Programa ya una campaña creada por una automatización sin aprobación. La confirmación del
+   * número de destinatarios la sustituye la configuración de la automatización (hecha por una
+   * persona con permiso de envío); por eso solo la puede usar el sistema.
+   */
+  async scheduleAutomated(context: TenantContext, campaignId: string) {
+    if (context.actor.type !== 'system') {
+      throw new DomainError('FORBIDDEN', 'Solo las automatizaciones programan sin confirmación');
+    }
+    const campaign = await this.get(context, campaignId);
+    return this.freezeAndSchedule(context, campaign, {
+      from: 'DRAFT',
+      scheduledAt: null,
+      confirmRecipients: 'skip',
+      auditAction: 'campaign.scheduled',
+    });
+  }
+
+  /** Deja la campaña a la espera de aprobación (no editable ni enviable hasta que se decida). */
+  async submitForApproval(context: TenantContext, campaignId: string) {
+    assertCan(context, 'campaign:write');
+    await this.transitionOrFail(context, campaignId, ['DRAFT'], 'PENDING_APPROVAL', {
+      bumpVersion: true,
+    });
+    await this.deps.audit.record(context, {
+      action: 'campaign.approval_requested',
+      entityType: 'campaign',
+      entityId: campaignId,
+    });
+  }
+
+  /**
+   * Aprueba y programa para ya. `expectedTemplateVersion` es la versión de la plantilla que vio
+   * quien aprueba: si alguien la editó después, la aprobación falla en lugar de enviar otra cosa.
+   */
+  async approve(
+    context: TenantContext,
+    campaignId: string,
+    expected: { campaignVersion: number; templateVersion: number },
+  ) {
+    assertCan(context, 'campaign:send');
+    const campaign = await this.get(context, campaignId);
+    if (campaign.status !== 'PENDING_APPROVAL') {
+      throw new DomainError('INVALID_STATE', 'La campaña no está pendiente de aprobación');
+    }
+    if (campaign.version !== expected.campaignVersion) {
+      throw new DomainError('CONFLICT', 'La campaña cambió', { reason: 'STALE_VERSION' });
+    }
+    return this.freezeAndSchedule(context, campaign, {
+      from: 'PENDING_APPROVAL',
+      scheduledAt: null,
+      confirmRecipients: 'skip',
+      expectedTemplateVersion: expected.templateVersion,
+      auditAction: 'campaign.approved',
+    });
+  }
+
+  /** Aprobación caducada sin enviar: solo cancela si sigue pendiente (nunca una ya programada). */
+  async expirePendingApproval(context: TenantContext, campaignId: string) {
+    if (context.actor.type !== 'system') {
+      throw new DomainError('FORBIDDEN', 'Solo el sistema caduca aprobaciones');
+    }
+    await this.transitionOrFail(context, campaignId, ['PENDING_APPROVAL'], 'CANCELLED', {
+      finishedAt: this.deps.clock.now(),
+    });
+    await this.deps.audit.record(context, {
+      action: 'campaign.approval_expired',
+      entityType: 'campaign',
+      entityId: campaignId,
+    });
+  }
+
+  /** Rechazo: la campaña vuelve a borrador para editarla o descartarla. */
+  async returnToDraft(context: TenantContext, campaignId: string) {
+    assertCan(context, 'campaign:send');
+    await this.transitionOrFail(context, campaignId, ['PENDING_APPROVAL'], 'DRAFT', {
+      bumpVersion: true,
+    });
+    await this.deps.audit.record(context, {
+      action: 'campaign.approval_rejected',
+      entityType: 'campaign',
+      entityId: campaignId,
+    });
+  }
+
+  private async freezeAndSchedule(
+    context: TenantContext,
+    campaign: CampaignRecord,
+    options: {
+      from: 'DRAFT' | 'PENDING_APPROVAL';
+      scheduledAt: Date | null;
+      confirmRecipients: number | null | 'skip';
+      expectedTemplateVersion?: number;
+      auditAction: string;
+    },
+  ) {
     const now = this.deps.clock.now();
-    const scheduledAt = input.scheduledAt ?? now;
+    const scheduledAt = options.scheduledAt ?? now;
     if (scheduledAt.getTime() < now.getTime() - 60_000) {
       throw new DomainError('VALIDATION', 'La fecha ya pasó', { reason: 'SCHEDULE_IN_PAST' });
     }
@@ -317,7 +421,11 @@ export class ManageCampaignsUseCase {
         reason: 'BLOCKING_ISSUES',
       });
     }
-    if (recipients >= SEND_CONFIRMATION_THRESHOLD && input.confirmRecipients !== recipients) {
+    if (
+      options.confirmRecipients !== 'skip' &&
+      recipients >= SEND_CONFIRMATION_THRESHOLD &&
+      options.confirmRecipients !== recipients
+    ) {
       throw new DomainError('VALIDATION', 'Confirma el número de destinatarios', {
         reason: 'CONFIRMATION_REQUIRED',
         recipients,
@@ -328,11 +436,17 @@ export class ManageCampaignsUseCase {
       : null;
     if (!template)
       throw new DomainError('VALIDATION', 'Plantilla inexistente', { reason: 'TEMPLATE_MISSING' });
+    if (
+      options.expectedTemplateVersion !== undefined &&
+      template.currentVersion !== options.expectedTemplateVersion
+    ) {
+      throw new DomainError('CONFLICT', 'La plantilla cambió', { reason: 'TEMPLATE_CHANGED' });
+    }
 
     const scheduled = await this.deps.campaigns.transition(
       context,
       campaign.id,
-      ['DRAFT'],
+      [options.from],
       'SCHEDULED',
       {
         scheduledAt,
@@ -351,7 +465,7 @@ export class ManageCampaignsUseCase {
       Math.max(0, scheduledAt.getTime() - now.getTime()),
     );
     await this.deps.audit.record(context, {
-      action: 'campaign.scheduled',
+      action: options.auditAction,
       entityType: 'campaign',
       entityId: campaign.id,
       metadata: {
@@ -427,7 +541,7 @@ export class ManageCampaignsUseCase {
     await this.transitionOrFail(
       context,
       campaignId,
-      ['SCHEDULED', 'DISPATCHING', 'SENDING', 'PAUSED'],
+      ['PENDING_APPROVAL', 'SCHEDULED', 'DISPATCHING', 'SENDING', 'PAUSED'],
       'CANCELLED',
       { finishedAt: this.deps.clock.now() },
     );

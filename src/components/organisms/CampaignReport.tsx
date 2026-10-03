@@ -33,10 +33,11 @@ import {
 import { useAction } from '@/common/hooks/use-action';
 import type { ActionResult } from '@/common/utils/action-result';
 import { dataGridLocaleText } from '@/common/i18n/data-grid-locale';
-import { useRouter } from '@/common/i18n/navigation';
+import { Link, useRouter } from '@/common/i18n/navigation';
 import { CAMPAIGN_STATUS_TONE, percent } from '@/common/utils/campaigns-ui';
 import { StatusChip } from '@/components/atoms/StatusChip';
 import { ConfirmDialog } from '@/components/molecules/ConfirmDialog';
+import { CampaignAiSummary } from './CampaignAiSummary';
 import type { CampaignStatus } from '@/core/campaigns/campaign';
 import {
   DELIVERY_STATUSES,
@@ -65,6 +66,10 @@ interface CampaignReportProps {
   initialLinks: LinkStats[];
   canSend: boolean;
   timeZone: string;
+  /** IA disponible: muestra el resumen de resultados. */
+  aiEnabled?: boolean;
+  /** Revisión de la aprobación pendiente (campañas de automatizaciones). */
+  approvalHref?: string | null;
 }
 
 function Kpi({ label, value, hint }: { label: string; value: string; hint?: string | undefined }) {
@@ -94,6 +99,8 @@ export function CampaignReport({
   initialLinks,
   canSend,
   timeZone,
+  aiEnabled = false,
+  approvalHref = null,
 }: CampaignReportProps) {
   const t = useTranslations();
   const locale = useLocale();
@@ -278,7 +285,26 @@ export function CampaignReport({
         </Alert>
       ) : null}
 
-      {status !== 'SCHEDULED' ? (
+      {status === 'PENDING_APPROVAL' ? (
+        <Alert
+          severity="warning"
+          action={
+            approvalHref ? (
+              <Button component={Link} href={approvalHref} color="inherit">
+                {t('CampaignReport.reviewApproval')}
+              </Button>
+            ) : undefined
+          }
+        >
+          {t('CampaignReport.pendingApproval')}
+        </Alert>
+      ) : null}
+
+      {aiEnabled && ['SENDING', 'PAUSED', 'SENT'].includes(status) ? (
+        <CampaignAiSummary tenantSlug={tenantSlug} campaignId={campaign.id} />
+      ) : null}
+
+      {status !== 'SCHEDULED' && status !== 'PENDING_APPROVAL' ? (
         <section aria-labelledby="campaign-progress" className="flex flex-col gap-2">
           <Typography id="campaign-progress" variant="subtitle1" component="h2">
             {t('CampaignReport.progress', {

@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
+import { getAiPageContext } from '@/app/_server/ai-context';
 import { requireTenant } from '@/app/_server/session';
 import { LinkButton } from '@/components/molecules/LinkButton';
 import { PageHeader } from '@/components/molecules/PageHeader';
@@ -33,7 +34,7 @@ export default async function TemplateEditorPage({
       throw error;
     });
   const canReadContacts = can(context.actor, 'contact:read');
-  const [versions, documents, fields, contacts] = await Promise.all([
+  const [versions, documents, fields, contacts, ai] = await Promise.all([
     useCases.templates().versions(context, templateId),
     can(context.actor, 'document:read')
       ? useCases.documents().list(context, { status: 'READY' })
@@ -48,6 +49,7 @@ export default async function TemplateEditorPage({
           status: 'ACTIVE',
         })
       : Promise.resolve(null),
+    getAiPageContext(context),
   ]);
 
   return (
@@ -84,6 +86,7 @@ export default async function TemplateEditorPage({
         }))}
         canWrite={can(context.actor, 'template:write')}
         timeZone={tenant.timezone}
+        aiEnabled={ai.enabled}
       />
     </>
   );

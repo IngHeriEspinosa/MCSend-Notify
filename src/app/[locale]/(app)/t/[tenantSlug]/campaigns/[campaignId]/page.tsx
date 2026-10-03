@@ -3,6 +3,7 @@ import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { notFound } from 'next/navigation';
 import { z } from 'zod';
+import { getAiPageContext } from '@/app/_server/ai-context';
 import { requireTenant } from '@/app/_server/session';
 import { LinkButton } from '@/components/molecules/LinkButton';
 import { PageHeader } from '@/components/molecules/PageHeader';
@@ -45,8 +46,16 @@ export default async function CampaignPage({
     />
   );
 
+  const ai = await getAiPageContext(context);
+
   if (campaign.status !== 'DRAFT') {
-    const report = await useCases.campaigns().report(context, campaignId);
+    const [report, approvals] = await Promise.all([
+      useCases.campaigns().report(context, campaignId),
+      campaign.status === 'PENDING_APPROVAL'
+        ? useCases.approvals().list(context, 'PENDING')
+        : Promise.resolve([]),
+    ]);
+    const approval = approvals.find((item) => item.campaignId === campaign.id);
     return (
       <>
         {header}
@@ -67,6 +76,8 @@ export default async function CampaignPage({
           initialLinks={report.links}
           canSend={can(context.actor, 'campaign:send')}
           timeZone={tenant.timezone}
+          aiEnabled={ai.enabled}
+          approvalHref={approval ? `/t/${tenantSlug}/approvals/${approval.id}` : null}
         />
       </>
     );
@@ -124,6 +135,8 @@ export default async function CampaignPage({
         }))}
         confirmationThreshold={SEND_CONFIRMATION_THRESHOLD}
         canSend={can(context.actor, 'campaign:send')}
+        ai={ai}
+        defaultLocale={tenant.defaultLocale === 'en' ? 'en' : 'es'}
       />
     </>
   );

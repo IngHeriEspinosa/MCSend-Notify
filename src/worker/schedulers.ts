@@ -10,6 +10,8 @@ export const HEARTBEAT_INTERVAL_MS = 30_000;
 export const CAMPAIGN_SWEEP_INTERVAL_MS = 15_000;
 /** Recuperación de entregas interrumpidas por una caída del worker. */
 export const DELIVERY_RECOVERY_INTERVAL_MS = 60_000;
+/** Caducidad de aprobaciones pendientes de campañas generadas por automatizaciones. */
+export const APPROVAL_EXPIRY_INTERVAL_MS = 60_000;
 
 export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Promise<void> {
   await maintenanceQueue.upsertJobScheduler(
@@ -32,6 +34,7 @@ export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Pr
       MAINTENANCE_JOBS.deliveriesRecover,
       DELIVERY_RECOVERY_INTERVAL_MS,
     ],
+    ['maintenance-approvals-expire', MAINTENANCE_JOBS.approvalsExpire, APPROVAL_EXPIRY_INTERVAL_MS],
   ];
   for (const [id, name, every] of sweeps) {
     await maintenanceQueue.upsertJobScheduler(

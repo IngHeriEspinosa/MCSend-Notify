@@ -2,6 +2,7 @@
 import type { Metadata } from 'next';
 import { getTranslations } from 'next-intl/server';
 import { notFound } from 'next/navigation';
+import { getAiPageContext } from '@/app/_server/ai-context';
 import { requireTenant } from '@/app/_server/session';
 import { PageHeader } from '@/components/molecules/PageHeader';
 import { TemplatesTable } from '@/components/organisms/TemplatesTable';
@@ -20,7 +21,10 @@ export default async function TemplatesPage({
   const { tenant, context } = await requireTenant(tenantSlug);
   if (!can(context.actor, 'template:read')) notFound();
   const t = await getTranslations('Templates');
-  const templates = await useCases.templates().list(context);
+  const [templates, ai] = await Promise.all([
+    useCases.templates().list(context),
+    getAiPageContext(context),
+  ]);
 
   return (
     <>
@@ -31,6 +35,7 @@ export default async function TemplatesPage({
         canWrite={can(context.actor, 'template:write')}
         defaultLocale={tenant.defaultLocale === 'en' ? 'en' : 'es'}
         timeZone={tenant.timezone}
+        ai={ai}
       />
     </>
   );

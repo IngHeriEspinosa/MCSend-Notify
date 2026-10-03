@@ -6,6 +6,7 @@ export const CAMPAIGN_STATUS_TONE: Record<
   'default' | 'info' | 'success' | 'warning' | 'error' | 'primary'
 > = {
   DRAFT: 'default',
+  PENDING_APPROVAL: 'warning',
   SCHEDULED: 'primary',
   DISPATCHING: 'info',
   SENDING: 'info',

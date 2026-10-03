@@ -78,12 +78,12 @@ Si perteneces a varias aplicaciones, elige una en **Elige una aplicación**. Pue
 
 ### Roles
 
-| Rol           | Puede                                                                                                              |
-| ------------- | ------------------------------------------------------------------------------------------------------------------ |
-| Propietario   | Todo, incluida la gestión de otros propietarios                                                                    |
-| Administrador | Todo salvo gestionar propietarios                                                                                  |
-| Editor        | Gestionar contactos, importaciones, listas, segmentos, etiquetas, plantillas y documentos; crear y enviar campañas |
-| Lector        | Consultar contactos, listas, segmentos, miembros, plantillas, documentos y campañas                                |
+| Rol           | Puede                                                                                                                                                                  |
+| ------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| Propietario   | Todo, incluida la gestión de otros propietarios                                                                                                                        |
+| Administrador | Todo salvo gestionar propietarios                                                                                                                                      |
+| Editor        | Gestionar contactos, importaciones, listas, segmentos, etiquetas, plantillas y documentos; crear y enviar campañas; usar la IA; gestionar novedades y automatizaciones |
+| Lector        | Consultar contactos, listas, segmentos, miembros, plantillas, documentos, campañas, novedades y automatizaciones                                                       |
 
 Solo los propietarios y administradores configuran los proveedores de correo y los remitentes.
 
@@ -290,18 +290,19 @@ La baja es inmediata y se respeta aunque la campaña siga enviándose.
 
 ## 9. Configuración
 
-| Sección               | Para qué sirve                                                                                         |
-| --------------------- | ------------------------------------------------------------------------------------------------------ |
-| General               | Nombre, idioma, zona horaria y **dirección postal** (obligatoria en el pie de los correos comerciales) |
-| Marca de los correos  | Logotipo, color principal, color de los botones y texto del pie de todos los correos                   |
-| Proveedores de correo | Servicios que envían los correos: SMTP, Microsoft 365, Resend o Amazon SES                             |
-| Remitentes            | Direcciones desde las que se envía y estado de su autenticación DNS                                    |
-| Miembros              | Invitar personas, cambiar su rol o quitarles el acceso                                                 |
-| Campos personalizados | Datos adicionales de los contactos: texto, número, fecha, sí/no o selección                            |
-| Etiquetas             | Marcas libres para clasificar contactos                                                                |
-| Temas de suscripción  | Tipos de comunicación que el contacto puede aceptar o rechazar, como "Resumen semanal"                 |
-| Claves de API         | Integraciones de otras aplicaciones con la API de contactos                                            |
-| Actividad             | Registro de quién hizo qué y cuándo                                                                    |
+| Sección                 | Para qué sirve                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------ |
+| General                 | Nombre, idioma, zona horaria y **dirección postal** (obligatoria en el pie de los correos comerciales) |
+| Marca de los correos    | Logotipo, color principal, color de los botones y texto del pie de todos los correos                   |
+| Proveedores de correo   | Servicios que envían los correos: SMTP, Microsoft 365, Resend o Amazon SES                             |
+| Remitentes              | Direcciones desde las que se envía y estado de su autenticación DNS                                    |
+| Inteligencia artificial | Proveedor de IA, modelos, presupuesto mensual y uso del mes                                            |
+| Miembros                | Invitar personas, cambiar su rol o quitarles el acceso                                                 |
+| Campos personalizados   | Datos adicionales de los contactos: texto, número, fecha, sí/no o selección                            |
+| Etiquetas               | Marcas libres para clasificar contactos                                                                |
+| Temas de suscripción    | Tipos de comunicación que el contacto puede aceptar o rechazar, como "Resumen semanal"                 |
+| Claves de API           | Integraciones de otras aplicaciones con la API de contactos                                            |
+| Actividad               | Registro de quién hizo qué y cuándo                                                                    |
 
 ### Invitar a un miembro
 
@@ -349,17 +350,102 @@ Las credenciales se guardan cifradas y nunca se vuelven a mostrar. Al editar, de
 
 1. En **Claves de API**, pulsa **Nueva clave**, ponle un nombre y elige los permisos y la caducidad.
 2. **Copia la clave en ese momento.** Por seguridad, no se vuelve a mostrar.
-3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts`. El README tiene un ejemplo.
+3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts` (contactos) o `/api/v1/changelog` (novedades, permiso «Publicar novedades»). El README tiene un ejemplo.
 4. Si la clave se expone, pulsa **Revocar**: deja de funcionar de inmediato.
 
-## 10. Funciones próximas
+### Inteligencia artificial
 
-| Función                                                                        | Estado                |
-| ------------------------------------------------------------------------------ | --------------------- |
-| Redacción con IA, resúmenes semanales automáticos y aprobación antes de enviar | Próximamente (Fase 4) |
-| Instalación como aplicación (PWA)                                              | Próximamente (Fase 5) |
+Solo propietarios y administradores. Mientras no esté configurada, los botones de IA no aparecen.
 
-## 11. Resolución de problemas
+1. En **Inteligencia artificial**, elige el origen:
+   - **IA de la plataforma:** Claude con la cuenta de Multicómputos, con un presupuesto máximo fijado por la plataforma;
+   - **Clave propia:** Anthropic (recomendado), OpenAI o un servidor compatible como Ollama (indica su URL, p. ej. `http://ollama:11434/v1`).
+2. Elige el **modelo principal** y, si quieres, un **modelo rápido** para tareas cortas (asuntos, tono, resúmenes).
+3. Fija el **presupuesto mensual**. Al alcanzarlo, la IA se bloquea hasta el día 1 del mes siguiente (UTC).
+4. Pulsa **Guardar** y después **Probar conexión**.
+
+El panel **Uso de este mes** muestra el gasto, las peticiones y el coste por tipo de uso. Al proveedor solo se envían las fuentes y textos necesarios para cada tarea, nunca la lista de contactos.
+
+## 10. IA, novedades y automatizaciones
+
+### Redactar con IA
+
+En **Plantillas** o en el paso **Contenido** de una campaña, pulsa **Redactar con IA**.
+
+1. **Añadir fuente:**
+   - texto (notas o un borrador);
+   - página web pública;
+   - feed RSS;
+   - documento de la biblioteca;
+   - novedades del buzón.
+2. Escribe instrucciones (opcional) y elige el tono y el idioma.
+3. Pulsa **Generar borrador**. Verás la vista previa, el coste aproximado y, si la IA propuso enlaces que no estaban en las fuentes, el aviso de que se eliminaron.
+4. Pulsa **Guardar como plantilla**. En una campaña, la plantilla nueva queda seleccionada.
+
+La IA solo puede enlazar URL que aparezcan en las fuentes. Las páginas de redes internas o direcciones reservadas se rechazan por seguridad.
+
+### Asistente en el editor de plantillas
+
+- **Sugerir asuntos:** cinco propuestas con avisos de riesgo (muy largo, todo en mayúsculas, palabras de spam...). Pulsa **Usar** para aplicarla.
+- **Ajustar el tono:** reescribe los textos con el tono elegido. Revisa y guarda.
+- **Traducir:** crea una copia de la plantilla en el otro idioma.
+
+La IA no cambia enlaces, documentos, variables ni estructura. Si una propuesta no es válida, ese texto conserva su versión original y se avisa.
+
+### Segmentos con IA
+
+Al crear o editar un segmento, describe la audiencia (por ejemplo, «clientes activos que hablan inglés») y pulsa **Generar reglas**. Revisa las reglas propuestas y el recuento antes de guardar.
+
+### Resumen de resultados
+
+En el informe de una campaña enviada, pulsa **Generar resumen** para obtener la conclusión principal, los datos clave y recomendaciones.
+
+### Novedades
+
+**Novedades** es el buzón de la aplicación: lo que se publica aquí alimenta el resumen periódico.
+
+- Pulsa **Nueva novedad** para añadirla a mano (título, versión, tipo y descripción).
+- Las aplicaciones pueden publicar por API con una clave con el permiso **Publicar novedades**. Con `externalId`, repetir la llamada actualiza la novedad en lugar de duplicarla.
+- El estado indica si ya se envió en algún resumen.
+
+### Automatizaciones
+
+1. En **Automatizaciones**, pulsa **Nueva automatización**.
+2. **Nombre y programación:** frecuencia (diaria, semanal o mensual), día, hora y zona horaria.
+3. **Contenido:** fuentes (normalmente «Novedades del buzón»), instrucciones, tono e idioma. Con **No enviar si no hay novedades nuevas**, una semana sin novedades no genera correo.
+4. **Audiencia y remitente:** listas, segmentos, exclusiones, tema de suscripción y remitente.
+5. **Aprobación** (recomendada): aprobadores, plazo para decidir y qué hacer si nadie decide (cancelar o enviar).
+6. Guarda y **activa** la automatización. Con **Ejecutar ahora** puedes probarla sin esperar a la programación.
+
+El **historial de ejecuciones** muestra cada ejecución:
+
+- **Esperando aprobación**;
+- **Enviada a la cola**;
+- **Omitida**, si no había novedades;
+- **Rechazada**;
+- **Caducada**;
+- **Error**, con el motivo.
+
+Cada ejecución enlaza a su campaña y a su aprobación.
+
+### Aprobaciones
+
+Cuando una automatización prepara una campaña, los aprobadores reciben un correo y el menú **Aprobaciones** muestra un contador.
+
+1. Abre la aprobación (desde el correo o el menú). Necesitas haber iniciado sesión.
+2. Revisa la vista previa, el asunto y los destinatarios. Si la IA propuso enlaces que se eliminaron, verás un aviso: lee con atención el texto que los acompañaba.
+3. Pulsa **Aprobar y enviar** para que salga ahora, o **Rechazar** para devolverla a borrador. Puedes dejar un comentario.
+
+Solo deciden los aprobadores designados, propietarios y administradores. Si la plantilla se edita mientras la revisas, la aprobación falla para que no se envíe algo distinto de lo revisado.
+
+## 11. Funciones próximas
+
+| Función                                                   | Estado                |
+| --------------------------------------------------------- | --------------------- |
+| Instalación como aplicación (PWA)                         | Próximamente (Fase 5) |
+| Texto alternativo de imágenes con IA y webhooks salientes | Próximamente (Fase 5) |
+
+## 12. Resolución de problemas
 
 | Problema                                                            | Qué hacer                                                                                             |
 | ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
@@ -384,5 +470,11 @@ Las credenciales se guardan cifradas y nunca se vuelven a mostrar. Al editar, de
 | El número de destinatarios es menor de lo esperado                  | Se excluyen bajas, rebotes, quejas, supresiones y bajas del tema elegido                              |
 | Los correos llegan a spam                                           | Corrige SPF, DKIM y DMARC del remitente (**Comprobar DNS**) y reduce los envíos por segundo           |
 | No llega el correo de recuperación o de invitación                  | Revisa spam; si no está, el correo del sistema no está configurado: avisa al equipo técnico           |
+| No aparecen los botones de IA                                       | La IA no está configurada o tu rol no la permite; pide a un administrador que la active               |
+| «Se agotó el presupuesto de IA de este mes»                         | Un administrador puede ampliar el presupuesto en Configuración › Inteligencia artificial              |
+| «Una de las URL no está permitida»                                  | Usa una página pública (http o https); las direcciones internas se bloquean por seguridad             |
+| Una ejecución aparece como «Omitida (sin novedades)»                | No había novedades nuevas en el periodo; publícalas o desactiva esa opción                            |
+| «La plantilla cambió mientras la revisabas»                         | Recarga la aprobación y revisa la versión actual antes de aprobar                                     |
+| No recibo el correo de aprobación                                   | Comprueba que eres aprobador de la automatización y revisa spam; también aparece en **Aprobaciones**  |
 
 Si el problema persiste, contacta con el equipo de desarrollo. Indica el **código de seguimiento** que muestran los errores inesperados, o el `x-trace-id` de las cabeceras de la respuesta. Ambos permiten localizar la operación en los logs.

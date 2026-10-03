@@ -90,17 +90,18 @@ El latido prueba de extremo a extremo que Redis funciona, que el scheduler progr
 
 Colas activas:
 
-| Cola                | Fase | Job id                            | Uso                                                                       |
-| ------------------- | ---- | --------------------------------- | ------------------------------------------------------------------------- |
-| `maintenance`       | 0    | por scheduler                     | Latido; barridos de campañas programadas, terminadas y entregas atascadas |
-| `contact-import`    | 1    | `import-{id}`                     | Importación de CSV o Excel                                                |
-| `document-process`  | 2    | `document-{id}-{marca de tiempo}` | Conversión, miniatura y texto                                             |
-| `campaign-dispatch` | 3    | `dispatch-{campaignId}-{version}` | Crear las entregas de una campaña y encolarlas                            |
-| `email-send`        | 3    | `delivery-{deliveryId}`           | Enviar una entrega (6 intentos, backoff exponencial)                      |
-| `provider-events`   | 3    | `event-{id}`                      | Aplicar eventos de webhooks (rebotes, quejas, entregas)                   |
-| `system-mail`       | 3    | aleatorio                         | Invitaciones y recuperación de contraseña                                 |
+| Cola                | Fase | Job id                                    | Uso                                                                       |
+| ------------------- | ---- | ----------------------------------------- | ------------------------------------------------------------------------- |
+| `maintenance`       | 0    | por scheduler                             | Latido; barridos de campañas programadas, terminadas y entregas atascadas |
+| `contact-import`    | 1    | `import-{id}`                             | Importación de CSV o Excel                                                |
+| `document-process`  | 2    | `document-{id}-{marca de tiempo}`         | Conversión, miniatura y texto                                             |
+| `campaign-dispatch` | 3    | `dispatch-{campaignId}-{version}`         | Crear las entregas de una campaña y encolarlas                            |
+| `email-send`        | 3    | `delivery-{deliveryId}`                   | Enviar una entrega (6 intentos, backoff exponencial)                      |
+| `provider-events`   | 3    | `event-{id}`                              | Aplicar eventos de webhooks (rebotes, quejas, entregas)                   |
+| `system-mail`       | 3    | aleatorio                                 | Invitaciones, recuperación de contraseña y solicitudes de aprobación      |
+| `automation-run`    | 4    | `automation-{id}-{clave}` o del scheduler | Ejecución de una automatización (3 intentos)                              |
 
-Las colas `automation-run`, `ai-generate` y `outbound-webhook` llegan en la Fase 4. BullMQ no admite `:` en los nombres de cola.
+Cada automatización activa tiene un Job Scheduler `automation-{id}` (cron + zona horaria) que el worker vuelve a registrar al arrancar. La cola `maintenance` añade el barrido `approvals-expire` (cada minuto). La asistencia con IA del editor se ejecuta en la Server Action (sin cola): Next.js autohospedado no impone un límite de tiempo a las acciones y el SDK tiene un tiempo máximo de 120 s. La cola `outbound-webhook` llega en la Fase 5. BullMQ no admite `:` en los nombres de cola.
 
 ## 5. Multi-tenancy
 
@@ -344,12 +345,63 @@ Las invitaciones y la recuperación de contraseña no dependen de los proveedore
   - la respuesta es siempre neutra, para no revelar si la cuenta existe.
   - al cambiar la contraseña, `sessionVersion` se incrementa y se cierran las sesiones abiertas.
 
-## 13. Diseño de la UI
+## 13. Inteligencia artificial
+
+```mermaid
+flowchart LR
+  ui[Server Action\nasistencia IA] --> assist[AiAssistUseCase]
+  worker[automation-run] --> run[RunAutomationUseCase] --> assist
+  assist --> collector[ContentCollector]
+  collector -->|safeFetch| web[(Páginas y RSS públicos)]
+  collector --> docs[(Documentos y novedades)]
+  assist --> service[AiService\npresupuesto + uso]
+  service --> port{{LanguageModel}}
+  port --> claude[AnthropicLanguageModel\nSDK oficial]
+  port --> compat[OpenAiCompatibleLanguageModel\nfetch + safeFetch]
+  assist --> guard[Guardrails\nenlaces, Liquid, unidades de texto]
+```
+
+- **`AiService`** es la puerta única:
+  - resuelve la configuración del tenant (plataforma o clave propia, descifrada con AAD) y comprueba el presupuesto del mes;
+  - llama al modelo y registra tokens, coste y latencia en `ai_usage`, también en los errores;
+  - traduce los errores a motivos estables (`AI_BUDGET_EXCEEDED`, `AI_REFUSED`...).
+- **`AiAssistUseCase`:**
+  - borrador desde fuentes, asuntos (con heurística local de riesgo), traducción y tono por unidades de texto;
+  - segmentos (nombres de listas y etiquetas → ids, validados con el catálogo) y resumen de resultados.
+- **Salida estructurada:** cada uso define un esquema Zod plano que se convierte a JSON Schema para la API y se valida de nuevo al recibirlo.
+- **Detalle de las decisiones:** [ADR 0011](adr/0011-ai-integration.md).
+
+## 14. Automatizaciones y aprobaciones
+
+```mermaid
+sequenceDiagram
+  participant S as Job Scheduler (cron + tz)
+  participant W as Worker automation-run
+  participant AI as AiAssist
+  participant DB as PostgreSQL
+  participant M as Correo del sistema
+  participant A as Aprobador (sesión)
+  S->>W: run (clave = id del job)
+  W->>DB: automation_runs (única por clave)
+  W->>W: reunir fuentes (sin novedades → SKIPPED)
+  W->>AI: borrador (guardrails)
+  W->>DB: plantilla + campaña + novedades marcadas
+  W->>DB: campaña PENDING_APPROVAL + approval_request
+  W->>M: aviso a los aprobadores
+  A->>DB: POST aprobar (versión de plantilla vista)
+  DB-->>W: campaña SCHEDULED → pipeline de envío
+```
+
+- Pasos guardados en la ejecución: un reintento tras una caída no duplica plantilla ni campaña.
+- La campaña es la fuente de verdad en las decisiones concurrentes (CAS de estado).
+- **Detalle de las decisiones:** [ADR 0012](adr/0012-automations-approvals.md).
+
+## 15. Diseño de la UI
 
 - **Atomic Design:**
   - `atoms`: `BrandLogo`, `StatusChip`, `ColorSwatch` (SVG, sin estilos en línea).
   - `molecules`: `PageHeader`, `StatCard`, `ConfirmDialog`, `CopyField`, `LinkButton`, `EmptyState`, `ThemeToggle`, `LocaleSwitcher`, `FileDropzone`, `EmailPreviewFrame`.
-  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, `ProvidersManager`, `SendersManager`, `CampaignsTable`, `CampaignEditor` (Stepper de 5 pasos), `CampaignReport` (DataGrid con paginación en servidor), `ActivityChart` (MUI X Charts con tabla alternativa accesible), `PreferencesForm`, `PasswordResetForms`, etc.
+  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, `ProvidersManager`, `SendersManager`, `CampaignsTable`, `CampaignEditor` (Stepper de 5 pasos), `CampaignReport` (DataGrid con paginación en servidor), `ActivityChart` (MUI X Charts con tabla alternativa accesible), `PreferencesForm`, `PasswordResetForms`, `AiSettingsForm`, `AiDraftDialog`, `TemplateAiTools`, `CampaignAiSummary`, `ChangelogManager`, `AutomationsTable`, `AutomationEditor`, `AutomationRuns`, `ApprovalsTable`, `ApprovalReview`, etc.; molecules nuevas `SourcesEditor` y `MultiSelectField`.
 - **Server Components** cargan los datos; los componentes cliente solo reciben datos serializables y llaman a Server Actions.
 - **Tailwind y MUI conviven** mediante capas CSS (`@layer theme, base, mui, components, utilities`). Las variables CSS que genera MUI (prefijo `--mc-`) se exponen como colores de Tailwind (`bg-primary`, `text-ink-muted`...), con una sola fuente de verdad en [src/common/theme/tokens.ts](../src/common/theme/tokens.ts).
 - **Modo oscuro** por clase en `<html>`, compartido por MUI y Tailwind, sin parpadeo inicial.

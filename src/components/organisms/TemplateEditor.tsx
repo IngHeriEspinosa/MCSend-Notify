@@ -47,6 +47,7 @@ import type { TemplateVersionSummary } from '@/core/templates/ports';
 import type { TemplateIssue } from '@/core/templates/template-issues';
 import { CONTACT_VARIABLES, SYSTEM_VARIABLES } from '@/core/templates/template-variables';
 import { BlockEditor, type DocumentOption } from './BlockEditor';
+import { TemplateAiTools } from './TemplateAiTools';
 
 const PREVIEW_DEBOUNCE_MS = 600;
 /** Valor del selector para el contacto de ejemplo (MUI no muestra la opción de valor vacío). */
@@ -90,6 +91,8 @@ interface TemplateEditorProps {
   contacts: Array<{ id: string; label: string }>;
   canWrite: boolean;
   timeZone: string;
+  /** IA disponible para el usuario (configurada y con permiso). */
+  aiEnabled: boolean;
 }
 
 function Section({ title, children }: { title: string; children: ReactNode }) {
@@ -112,6 +115,7 @@ export function TemplateEditor({
   contacts,
   canWrite,
   timeZone,
+  aiEnabled,
 }: TemplateEditorProps) {
   const t = useTranslations();
   const locale = useLocale();
@@ -343,6 +347,15 @@ export function TemplateEditor({
               <MenuItem value="en">{t('Common.languages.en')}</MenuItem>
             </TextField>
           </Section>
+
+          {aiEnabled && canWrite && body.format !== 'HTML' ? (
+            <TemplateAiTools
+              tenantSlug={tenantSlug}
+              name={name}
+              body={body}
+              onBodyChange={setBody}
+            />
+          ) : null}
 
           <Section title={t('TemplateEditor.content')}>{content}</Section>
 

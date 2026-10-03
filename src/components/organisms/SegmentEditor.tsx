@@ -5,6 +5,7 @@
  * del número de contactos. Las reglas se validan de nuevo en el servidor al contar y al guardar.
  */
 import AddOutlined from '@mui/icons-material/AddOutlined';
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import CloseOutlined from '@mui/icons-material/CloseOutlined';
 import Alert from '@mui/material/Alert';
 import Button from '@mui/material/Button';
@@ -26,6 +27,7 @@ import {
   previewSegmentCountAction,
   updateSegmentAction,
 } from '@/app/_server/actions/audience.actions';
+import { segmentFromTextAction } from '@/app/_server/actions/ai.actions';
 import { useAction } from '@/common/hooks/use-action';
 import { Link, useRouter } from '@/common/i18n/navigation';
 import { CONTACT_STATUSES, type ContactStatus } from '@/core/contacts/contact';
@@ -55,6 +57,8 @@ interface SegmentEditorProps {
   tags: Option[];
   segment?: { id: string; name: string; description: string | null; rules: SegmentRuleSet };
   canWrite: boolean;
+  /** Describir la audiencia en lenguaje natural con IA. */
+  aiEnabled?: boolean;
 }
 
 const BUILTIN_FIELD_IDS = [
@@ -384,6 +388,7 @@ export function SegmentEditor({
   tags,
   segment,
   canWrite,
+  aiEnabled = false,
 }: SegmentEditorProps) {
   const t = useTranslations();
   const locale = useLocale();
@@ -395,6 +400,22 @@ export function SegmentEditor({
     segment?.rules ?? { combinator: 'and', rules: [newRule()] },
   );
   const [count, setCount] = useState<number | null>(null);
+  const [prompt, setPrompt] = useState('');
+  const [explanation, setExplanation] = useState<string | null>(null);
+  const describe = () =>
+    void run(
+      () =>
+        segmentFromTextAction(tenantSlug, {
+          description: prompt,
+          locale: locale === 'en' ? 'en' : 'es',
+        }),
+      {
+        onSuccess: (result) => {
+          setRules(result.rules);
+          setExplanation(result.explanation);
+        },
+      },
+    );
 
   const catalog = useMemo(() => buildSegmentCatalog(fields), [fields]);
   const editor: EditorContext = {
@@ -452,6 +473,41 @@ export function SegmentEditor({
           />
         </CardContent>
       </Card>
+
+      {aiEnabled && canWrite ? (
+        <Card variant="outlined">
+          <CardContent className="flex flex-col gap-3">
+            <Typography variant="h6" component="h2" className="flex items-center gap-2">
+              <AutoAwesomeOutlined color="primary" aria-hidden />
+              {t('Segments.aiTitle')}
+            </Typography>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-start">
+              <TextField
+                label={t('Segments.aiPrompt')}
+                value={prompt}
+                onChange={(event) => setPrompt(event.target.value)}
+                helperText={t('Segments.aiHint')}
+                fullWidth
+                multiline
+                slotProps={{ htmlInput: { maxLength: 1000 } }}
+              />
+              <Button
+                variant="outlined"
+                onClick={describe}
+                disabled={pending || prompt.trim().length < 5}
+                className="shrink-0 sm:mt-2"
+              >
+                {t('Segments.aiGenerate')}
+              </Button>
+            </div>
+            {explanation ? (
+              <Alert severity="info" onClose={() => setExplanation(null)}>
+                {explanation} {t('Segments.aiReview')}
+              </Alert>
+            ) : null}
+          </CardContent>
+        </Card>
+      ) : null}
 
       <Card variant="outlined">
         <CardContent className="flex flex-col gap-4">

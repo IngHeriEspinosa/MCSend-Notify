@@ -1,5 +1,6 @@
 /**
- * Correo del sistema por SMTP (`SYSTEM_MAIL_SMTP_URL`): invitaciones y recuperación de contraseña.
+ * Correo del sistema por SMTP (`SYSTEM_MAIL_SMTP_URL`): invitaciones, recuperación de contraseña y
+ * solicitudes de aprobación de campañas generadas por automatizaciones.
  * Plantillas sencillas en español e inglés con todo dato variable escapado.
  */
 import { createTransport, type Transporter } from 'nodemailer';
@@ -22,6 +23,10 @@ const COPY = {
     resetBody:
       'Recibimos una solicitud para cambiar tu contraseña. Si no fuiste tú, ignora este correo.',
     resetCta: 'Elegir una contraseña nueva',
+    approvalSubject: (automation: string) => `Aprobación pendiente: ${automation}`,
+    approvalBody: (tenant: string, automation: string, subject: string, recipients: number) =>
+      `La automatización «${automation}» de ${tenant} preparó una campaña con el asunto «${subject}» para ${recipients} destinatarios. Revísala y apruébala o recházala antes de que caduque.`,
+    approvalCta: 'Revisar la campaña',
     expires: (date: string) => `El enlace caduca el ${date}.`,
     footer: 'Multicómputos · MC Send Notify',
   },
@@ -34,6 +39,10 @@ const COPY = {
     resetBody:
       'We received a request to change your password. If it was not you, ignore this email.',
     resetCta: 'Choose a new password',
+    approvalSubject: (automation: string) => `Approval needed: ${automation}`,
+    approvalBody: (tenant: string, automation: string, subject: string, recipients: number) =>
+      `The automation "${automation}" of ${tenant} prepared a campaign with the subject "${subject}" for ${recipients} recipients. Review it and approve or reject it before it expires.`,
+    approvalCta: 'Review the campaign',
     expires: (date: string) => `The link expires on ${date}.`,
     footer: 'Multicómputos · MC Send Notify',
   },
@@ -48,14 +57,29 @@ export function renderSystemMail(message: SystemMailMessage): RenderedSystemMail
       timeZone: 'UTC',
     }).format(message.expiresAt) + ' UTC',
   );
-  const [subject, body, cta] =
-    message.kind === 'invitation'
-      ? [
+  const [subject, body, cta] = ((): [string, string, string] => {
+    switch (message.kind) {
+      case 'invitation':
+        return [
           copy.inviteSubject(message.tenantName),
           copy.inviteBody(message.tenantName, message.inviterName),
           copy.inviteCta,
-        ]
-      : [copy.resetSubject, copy.resetBody, copy.resetCta];
+        ];
+      case 'password-reset':
+        return [copy.resetSubject, copy.resetBody, copy.resetCta];
+      case 'approval-request':
+        return [
+          copy.approvalSubject(message.automationName),
+          copy.approvalBody(
+            message.tenantName,
+            message.automationName,
+            message.subject,
+            message.recipients,
+          ),
+          copy.approvalCta,
+        ];
+    }
+  })();
   const html = `<!doctype html><html lang="${message.locale}"><head><meta charset="utf-8"><meta name="viewport" content="width=device-width, initial-scale=1"><title>${escapeHtml(subject)}</title></head>
 <body style="margin:0;padding:24px 12px;background-color:#F4F6F8;font-family:Arial,Helvetica,sans-serif;color:#1F2328;">
 <table role="presentation" width="100%" cellpadding="0" cellspacing="0"><tr><td align="center">

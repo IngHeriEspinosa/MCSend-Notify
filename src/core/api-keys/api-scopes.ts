@@ -1,5 +1,5 @@
 /** Permisos que se pueden conceder a una clave de API (integraciones de las aplicaciones). */
-export const API_SCOPES = ['contacts:read', 'contacts:write'] as const;
+export const API_SCOPES = ['contacts:read', 'contacts:write', 'changelog:write'] as const;
 
 export type ApiScope = (typeof API_SCOPES)[number];
 

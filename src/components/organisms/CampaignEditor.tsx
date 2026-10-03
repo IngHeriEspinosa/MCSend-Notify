@@ -13,6 +13,7 @@ import PhoneIphoneOutlined from '@mui/icons-material/PhoneIphoneOutlined';
 import WarningAmberOutlined from '@mui/icons-material/WarningAmberOutlined';
 import Alert from '@mui/material/Alert';
 import Autocomplete from '@mui/material/Autocomplete';
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import Button from '@mui/material/Button';
 import Dialog from '@mui/material/Dialog';
 import DialogActions from '@mui/material/DialogActions';
@@ -45,6 +46,7 @@ import { useNotify } from '@/common/hooks/notifications';
 import { useAction } from '@/common/hooks/use-action';
 import { Link } from '@/common/i18n/navigation';
 import { EmailPreviewFrame } from '@/components/molecules/EmailPreviewFrame';
+import { AiDraftDialog } from './AiDraftDialog';
 import type { CampaignAudience, CampaignIssue } from '@/core/campaigns/campaign';
 
 type Option = { id: string; label: string };
@@ -72,6 +74,8 @@ interface CampaignEditorProps {
   contacts: Option[];
   confirmationThreshold: number;
   canSend: boolean;
+  ai: { enabled: boolean; documents: Array<{ id: string; title: string }> };
+  defaultLocale: 'es' | 'en';
 }
 
 const NONE = 'none';
@@ -123,12 +127,15 @@ export function CampaignEditor({
   contacts,
   confirmationThreshold,
   canSend,
+  ai,
+  defaultLocale,
 }: CampaignEditorProps) {
   const t = useTranslations();
   const locale = useLocale();
   const notify = useNotify();
   const { run, pending } = useAction();
   const [step, setStep] = useState(0);
+  const [drafting, setDrafting] = useState(false);
   const [version, setVersion] = useState(campaign.version);
   const [draft, setDraft] = useState({
     name: campaign.name,
@@ -329,6 +336,24 @@ export function CampaignEditor({
           <Typography variant="body2" color="text.secondary">
             {t('CampaignEditor.contentHint')}
           </Typography>
+          {ai.enabled ? (
+            <div>
+              <Button startIcon={<AutoAwesomeOutlined />} onClick={() => setDrafting(true)}>
+                {t('AiDraft.open')}
+              </Button>
+              <AiDraftDialog
+                tenantSlug={tenantSlug}
+                open={drafting}
+                onClose={() => setDrafting(false)}
+                defaultLocale={defaultLocale}
+                documents={ai.documents}
+                onCreated={(id) => {
+                  setDrafting(false);
+                  update({ templateId: id });
+                }}
+              />
+            </div>
+          ) : null}
         </Section>
       ) : null}
 

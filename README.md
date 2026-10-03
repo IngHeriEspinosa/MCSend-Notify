@@ -2,7 +2,7 @@
 
 Gestor multi-tenant de envío automático de correos para **Multicómputos**. Cada aplicación o producto (MCSupport, MCLog, etc.) es un _tenant_ aislado con sus propios contactos, plantillas, remitentes, marca y proveedores. La plataforma permite enviar actualizaciones y resúmenes semanales a los clientes, redactarlos con IA, adjuntar documentos con miniatura y automatizar los envíos recurrentes.
 
-> **Estado:** Fases 0, 1, 2 y 3 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos, plantillas, documentos con miniatura y la marca de los correos. También se pueden configurar proveedores de correo y remitentes, y enviar campañas con seguimiento, bajas en un clic e informes. Las siguientes fases están en el [roadmap](#roadmap).
+> **Estado:** Fases 0 a 4 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos, plantillas, documentos con miniatura y la marca de los correos. También se pueden enviar campañas con seguimiento, bajas en un clic e informes; redactar, traducir y segmentar con IA; y automatizar resúmenes periódicos con aprobación humana. La Fase 5 está en el [roadmap](#roadmap).
 
 ## Funcionalidades disponibles
 
@@ -33,24 +33,42 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 - **Rebotes y quejas** por webhooks firmados de Resend y SES, con supresión automática.
 - **Informes** por campaña (métricas, enlaces, variantes A/B y entregas) y panel con la actividad de 30 días.
 - **Correo del sistema:** invitaciones y recuperación de contraseña por correo.
+- **Inteligencia artificial por aplicación:**
+  - IA de la plataforma (Claude) o clave propia de Anthropic, OpenAI o un servidor compatible (Ollama);
+  - presupuesto mensual, registro de uso y coste, y prueba de conexión.
+- **Redactar con IA:**
+  - borradores de campaña a partir de texto, páginas web, feeds RSS, documentos y el buzón de novedades;
+  - propuestas de asunto con avisos de riesgo, traducción ES↔EN, ajuste de tono;
+  - segmentos descritos en lenguaje natural y resumen de resultados.
+- **Guardrails de IA:**
+  - las fuentes son datos, nunca instrucciones;
+  - ningún enlace que no esté en las fuentes llega al correo;
+  - las traducciones no tocan URL, variables ni estructura;
+  - la IA nunca envía.
+- **Buzón de novedades** (`/api/v1/changelog`) para que cada producto publique sus versiones.
+- **Automatizaciones** (p. ej. resumen semanal):
+  - programación diaria, semanal o mensual con zona horaria;
+  - aprobación humana por correo con caducidad;
+  - ejecución idempotente y reanudable.
 - **Auditoría:** registro inmutable de las acciones de cada tenant.
 
 ## Stack
 
-| Capa           | Tecnología                                                                                               |
-| -------------- | -------------------------------------------------------------------------------------------------------- |
-| Web            | Next.js 16 (App Router, Server Components, `proxy.ts`), React 19, TypeScript estricto                    |
-| UI             | Tailwind CSS 4 (layout y utilidades) y MUI 9 (componentes complejos), Atomic Design, modo claro y oscuro |
-| i18n           | next-intl 4 (español e inglés)                                                                           |
-| Datos          | PostgreSQL 18 y Prisma 7 (driver adapter `pg`)                                                           |
-| Colas          | Redis 8 y BullMQ 6, con el worker en un proceso propio                                                   |
-| Archivos       | Almacenamiento S3 compatible (SeaweedFS)                                                                 |
-| Documentos     | Gotenberg 8 (conversión a PDF), poppler (páginas, miniatura y texto) y sharp (imágenes)                  |
-| Correos        | LiquidJS (variables), markdown-it, sanitize-html y juice (CSS en línea)                                  |
-| Envío          | nodemailer (SMTP), Microsoft Graph y Resend por `fetch`, `@aws-sdk/client-sesv2`, MUI X Charts           |
-| Observabilidad | pino (logs JSON con redacción), MCLog opcional y endpoints de salud                                      |
-| Calidad        | Vitest 5, ESLint 9 con límites de capas, Prettier                                                        |
-| Despliegue     | Docker Compose en VM y Caddy con TLS automático                                                          |
+| Capa           | Tecnología                                                                                                          |
+| -------------- | ------------------------------------------------------------------------------------------------------------------- |
+| Web            | Next.js 16 (App Router, Server Components, `proxy.ts`), React 19, TypeScript estricto                               |
+| UI             | Tailwind CSS 4 (layout y utilidades) y MUI 9 (componentes complejos), Atomic Design, modo claro y oscuro            |
+| i18n           | next-intl 4 (español e inglés)                                                                                      |
+| Datos          | PostgreSQL 18 y Prisma 7 (driver adapter `pg`)                                                                      |
+| Colas          | Redis 8 y BullMQ 6, con el worker en un proceso propio                                                              |
+| Archivos       | Almacenamiento S3 compatible (SeaweedFS)                                                                            |
+| Documentos     | Gotenberg 8 (conversión a PDF), poppler (páginas, miniatura y texto) y sharp (imágenes)                             |
+| Correos        | LiquidJS (variables), markdown-it, sanitize-html y juice (CSS en línea)                                             |
+| Envío          | nodemailer (SMTP), Microsoft Graph y Resend por `fetch`, `@aws-sdk/client-sesv2`, MUI X Charts                      |
+| IA             | SDK oficial `@anthropic-ai/sdk` (Claude Opus 5.5 por defecto), OpenAI-compatible por `fetch`, fast-xml-parser (RSS) |
+| Observabilidad | pino (logs JSON con redacción), MCLog opcional y endpoints de salud                                                 |
+| Calidad        | Vitest 5, ESLint 9 con límites de capas, Prettier                                                                   |
+| Despliegue     | Docker Compose en VM y Caddy con TLS automático                                                                     |
 
 ## Requisitos
 
@@ -145,7 +163,7 @@ src/
 | 1    | Núcleo multi-tenant, autenticación (Entra ID y credenciales), RBAC, contactos, listas y segmentos | Completada |
 | 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Completada |
 | 3    | Campañas, envío multi-proveedor (SMTP, Graph, Resend, SES), tracking y bajas                      | Completada |
-| 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Pendiente  |
+| 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Completada |
 | 5    | PWA, revisión i18n, hardening y documentación final                                               | Pendiente  |
 
 ## Licencia

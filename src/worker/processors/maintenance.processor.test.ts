@@ -18,4 +18,16 @@ describe('createMaintenanceProcessor', () => {
       UnknownMaintenanceJobError,
     );
   });
+
+  it('aplica la caducidad de las aprobaciones pendientes', async () => {
+    const approvals = { expireDue: vi.fn().mockResolvedValue(2) };
+    await createMaintenanceProcessor(
+      { beat: vi.fn() },
+      undefined,
+      approvals,
+    )({
+      name: MAINTENANCE_JOBS.approvalsExpire,
+    });
+    expect(approvals.expireDue).toHaveBeenCalledOnce();
+  });
 });

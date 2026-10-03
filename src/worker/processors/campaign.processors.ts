@@ -1,6 +1,7 @@
 /**
- * Procesadores de campañas: despacho, envío de entregas, eventos de proveedores y correo del
- * sistema. Validan cada job con Zod y trabajan con un contexto de sistema del tenant.
+ * Procesadores de campañas: despacho, envío de entregas, eventos de proveedores, correo del
+ * sistema y ejecuciones de automatizaciones. Validan cada job con Zod y trabajan con un contexto
+ * de sistema del tenant.
  *
  * Envío con límite alcanzado: el job se mueve a "delayed" sin consumir un intento
  * (`moveToDelayed` + `DelayedError`), de modo que los límites no agotan los reintentos.
@@ -11,6 +12,8 @@ import { systemMailMessageSchema, type SystemMailMessage } from '@/core/identity
 import { systemContext, type TenantContext } from '@/core/shared/tenant-context';
 import { runWithTraceId } from '@/infrastructure/observability/trace-context';
 import {
+  AUTOMATION_RUN_ATTEMPTS,
+  automationRunJobSchema,
   campaignDispatchJobSchema,
   EMAIL_SEND_ATTEMPTS,
   emailSendJobSchema,
@@ -72,5 +75,32 @@ export function createSystemMailProcessor(deps: {
 }) {
   return async function processSystemMail(job: Pick<Job, 'data'>): Promise<void> {
     await deps.mailer.send(systemMailMessageSchema.parse(job.data));
+  };
+}
+
+export function createAutomationRunProcessor(deps: {
+  run: {
+    execute(
+      context: TenantContext,
+      automationId: string,
+      idempotencyKey: string,
+      options: { trigger: 'schedule' | 'manual'; finalAttempt: boolean },
+    ): Promise<unknown>;
+  };
+}) {
+  return async function processAutomationRun(
+    job: Pick<Job, 'data' | 'id' | 'attemptsMade' | 'opts'>,
+  ): Promise<void> {
+    const data = automationRunJobSchema.parse(job.data);
+    const context = systemContext(data.tenantId, data.tenantSlug, 'automation-run');
+    // Las ejecuciones programadas usan el id del job (único por fecha de disparo).
+    const idempotencyKey = data.idempotencyKey ?? `schedule-${job.id ?? 'unknown'}`;
+    const attempts = job.opts.attempts ?? AUTOMATION_RUN_ATTEMPTS;
+    await runWithTraceId(`automation-${data.automationId}`, () =>
+      deps.run.execute(context, data.automationId, idempotencyKey, {
+        trigger: data.trigger,
+        finalAttempt: job.attemptsMade + 1 >= attempts,
+      }),
+    );
   };
 }
