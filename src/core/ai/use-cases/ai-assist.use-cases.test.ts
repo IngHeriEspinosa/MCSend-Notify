@@ -1,5 +1,6 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  FakeImageLoader,
   FakeLanguageModelFactory,
   FakeSourceFetcher,
   InMemoryAiSettingsRepository,
@@ -22,10 +23,12 @@ const LIST_ID = '55555555-5555-7555-8555-555555555555';
 let factory: FakeLanguageModelFactory;
 let fetcher: FakeSourceFetcher;
 let counted: SegmentRuleSet[];
+let images: FakeImageLoader;
 
 function assist() {
   const clock = new FakeClock();
   return new AiAssistUseCase({
+    images,
     ai: new AiService({
       settings: new InMemoryAiSettingsRepository(),
       usage: new InMemoryAiUsageRepository(),
@@ -98,6 +101,7 @@ beforeEach(() => {
   factory = new FakeLanguageModelFactory();
   fetcher = new FakeSourceFetcher();
   counted = [];
+  images = new FakeImageLoader();
 });
 
 describe('borrador de campaña', () => {
@@ -282,5 +286,42 @@ describe('resumen de resultados', () => {
     expect(summary.highlights).toHaveLength(4);
     expect(summary.recommendations).toHaveLength(3);
     expect(factory.requests[0]?.request.prompt).toContain('"openRate":31.6');
+  });
+});
+
+describe('texto alternativo', () => {
+  it('envía la imagen al modelo y devuelve un texto corto, sin enlaces ni Markdown', async () => {
+    factory.respond({
+      alt: '**Panel** de SLA con [gráfico](https://evil.example) de tiempos de respuesta por prioridad y agente durante la última semana, con la meta del 95 % marcada en verde',
+    });
+    const result = await assist().altText(ownerContext, {
+      src: 'https://cdn.example.com/sla.png',
+      documentId: null,
+      locale: 'es',
+      context: 'Nuevo panel de SLA',
+    });
+
+    expect(result.alt.length).toBeLessThanOrEqual(125);
+    expect(result.alt).toMatch(/^Panel de SLA con gráfico de tiempos/);
+    expect(result.alt).not.toMatch(/https?:|\*|\[/);
+    const request = factory.requests[0]?.request;
+    expect(request?.images).toEqual([{ mediaType: 'image/png', base64: 'iVBORw0KGgo=' }]);
+    expect(request?.prompt).toContain('<context>\nNuevo panel de SLA\n</context>');
+    expect(images.loaded).toEqual([{ src: 'https://cdn.example.com/sla.png', documentId: null }]);
+  });
+
+  it('exige exactamente una imagen y propaga una imagen no disponible', async () => {
+    await expect(
+      assist().altText(ownerContext, { src: null, documentId: null, locale: 'es', context: '' }),
+    ).rejects.toMatchObject({ details: { reason: 'IMAGE_UNAVAILABLE' } });
+    await expect(
+      assist().altText(ownerContext, {
+        src: null,
+        documentId: 'missing',
+        locale: 'es',
+        context: '',
+      }),
+    ).rejects.toMatchObject({ details: { reason: 'IMAGE_UNAVAILABLE' } });
+    expect(factory.requests).toEqual([]);
   });
 });

@@ -1,13 +1,18 @@
 /**
- * Empaqueta el worker en un único módulo ESM (dist/worker/index.mjs) con esbuild.
+ * Empaqueta el worker (dist/worker/index.mjs) y la CLI de rotación de claves
+ * (dist/worker/rotate-secrets.mjs) como módulos ESM con esbuild.
  * El código propio (alias `@/`) se incluye en el bundle; las dependencias de node_modules
  * quedan externas y se instalan en la imagen con `pnpm install --prod`.
  */
 import { build } from 'esbuild';
 
 await build({
-  entryPoints: ['src/worker/index.ts'],
-  outfile: 'dist/worker/index.mjs',
+  entryPoints: {
+    index: 'src/worker/index.ts',
+    'rotate-secrets': 'src/worker/cli/rotate-secrets.ts',
+  },
+  outdir: 'dist/worker',
+  outExtension: { '.js': '.mjs' },
   bundle: true,
   platform: 'node',
   format: 'esm',

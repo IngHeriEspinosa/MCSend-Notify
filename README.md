@@ -2,7 +2,7 @@
 
 Gestor multi-tenant de envío automático de correos para **Multicómputos**. Cada aplicación o producto (MCSupport, MCLog, etc.) es un _tenant_ aislado con sus propios contactos, plantillas, remitentes, marca y proveedores. La plataforma permite enviar actualizaciones y resúmenes semanales a los clientes, redactarlos con IA, adjuntar documentos con miniatura y automatizar los envíos recurrentes.
 
-> **Estado:** Fases 0 a 4 completadas. Ya se pueden gestionar aplicaciones (tenants), usuarios con roles, contactos, listas, segmentos, plantillas, documentos con miniatura y la marca de los correos. También se pueden enviar campañas con seguimiento, bajas en un clic e informes; redactar, traducir y segmentar con IA; y automatizar resúmenes periódicos con aprobación humana. La Fase 5 está en el [roadmap](#roadmap).
+> **Estado:** las 5 fases del plan están completadas. La plataforma gestiona aplicaciones (tenants), usuarios con roles, contactos, plantillas, documentos con miniatura, campañas multi-proveedor con seguimiento e informes, IA y automatizaciones con aprobación humana. Además es instalable como PWA, avisa a otros sistemas con webhooks firmados, cumple la supresión y retención de datos (RGPD) y se despliega con Caddy y TLS ([guía de despliegue](docs/DEPLOYMENT.md)).
 
 ## Funcionalidades disponibles
 
@@ -50,6 +50,20 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
   - programación diaria, semanal o mensual con zona horaria;
   - aprobación humana por correo con caducidad;
   - ejecución idempotente y reanudable.
+- **Webhooks salientes** firmados con HMAC: campaña enviada, aprobación solicitada, rebote, queja, baja y automatización fallida. Incluyen reintentos, registro de entregas, rotación del secreto y desactivación automática.
+- **Eventos de la API** (`/api/v1/events`) que disparan automatizaciones, por ejemplo al publicar una versión. Los datos del evento llegan a la IA como fuente.
+- **Texto alternativo de imágenes con IA** (visión) en el editor de plantillas.
+- **PWA instalable:** solo se cachean recursos estáticos, nunca datos de los tenants, y hay página sin conexión en ES y EN.
+- **Privacidad (RGPD):**
+  - supresión del contacto con anonimización de su historial;
+  - retención automática: 13 meses de actividad, 90 días de eventos crudos y 30 días de registro de webhooks.
+- **Seguridad operativa:**
+  - rotación de la clave de cifrado (`pnpm secrets:rotate`);
+  - antivirus ClamAV opcional para documentos.
+- **Panel de plataforma:**
+  - colas del worker con reintento o descarte de trabajos fallidos;
+  - uso y coste de IA del mes por aplicación.
+- **Accesibilidad:** WCAG 2.2 AA verificada con axe-core en ES y EN, modo claro y oscuro y navegación por teclado.
 - **Auditoría:** registro inmutable de las acciones de cada tenant.
 
 ## Stack
@@ -67,7 +81,8 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 | Envío          | nodemailer (SMTP), Microsoft Graph y Resend por `fetch`, `@aws-sdk/client-sesv2`, MUI X Charts                      |
 | IA             | SDK oficial `@anthropic-ai/sdk` (Claude Opus 5.5 por defecto), OpenAI-compatible por `fetch`, fast-xml-parser (RSS) |
 | Observabilidad | pino (logs JSON con redacción), MCLog opcional y endpoints de salud                                                 |
-| Calidad        | Vitest 5, ESLint 9 con límites de capas, Prettier                                                                   |
+| Calidad        | Vitest 5, Playwright 1.63 + axe-core 4.13 (E2E y WCAG), ESLint 9 con límites de capas, Prettier                     |
+| PWA y entrega  | Serwist 9 (service worker), Caddy 2.10 (TLS ACME o CA interna), ClamAV opcional                                     |
 | Despliegue     | Docker Compose en VM y Caddy con TLS automático                                                                     |
 
 ## Requisitos
@@ -101,6 +116,14 @@ curl -X POST http://localhost:3020/api/v1/contacts   -H "Authorization: Bearer m
 
 La clave se crea en **Configuración → Claves de API** y solo se muestra una vez. La respuesta es `201` si el contacto es nuevo y `200` si se actualizó.
 
+### API de eventos
+
+```bash
+curl -X POST http://localhost:3020/api/v1/events   -H "Authorization: Bearer mcsn_xxxxxxxx_..."   -H "Content-Type: application/json"   -d '{"event":"release.published","id":"mcsupport-3.3.0","data":{"version":"3.3.0","notes":"Panel de SLA"}}'
+```
+
+Requiere el permiso **Enviar eventos que disparan automatizaciones**. Responde `202` con las automatizaciones activas que escuchan ese evento. Con el mismo `id`, un reintento no duplica campañas.
+
 ### Servicios de desarrollo
 
 | Servicio                    | URL o puerto (solo 127.0.0.1)                                              |
@@ -119,22 +142,27 @@ La clave se crea en **Configuración → Claves de API** y solo se muestra una v
 ```bash
 docker compose up --build          # desarrollo: app, worker e infraestructura
 docker compose -f compose.yaml -f compose.prod.yaml up -d --build   # producción con Caddy y TLS
+docker compose -f compose.yaml -f compose.prod.yaml --profile seed run --rm seed   # datos iniciales
 ```
+
+El procedimiento completo (VM, DNS, TLS interno, copias de seguridad y operación) está en [docs/DEPLOYMENT.md](docs/DEPLOYMENT.md).
 
 En redes con inspección TLS, como la red corporativa de Multicómputos, coloca la CA raíz en `docker/certs/`. Las instrucciones están en [docker/certs/README.md](docker/certs/README.md).
 
 ## Scripts
 
-| Script                                                    | Uso                                                                     |
-| --------------------------------------------------------- | ----------------------------------------------------------------------- |
-| `pnpm setup`                                              | Puesta en marcha completa del entorno de desarrollo                     |
-| `pnpm dev` / `pnpm dev:worker`                            | App y worker en modo desarrollo                                         |
-| `pnpm build`                                              | Cliente Prisma, build de Next.js y bundle del worker                    |
-| `pnpm start` / `pnpm start:worker`                        | Ejecutar el build de producción                                         |
-| `pnpm db:migrate` / `db:deploy` / `db:seed` / `db:studio` | Base de datos                                                           |
-| `pnpm typecheck` / `pnpm lint` / `pnpm format`            | Calidad de código                                                       |
-| `pnpm test` / `test:int` / `test:coverage`                | Tests unitarios, de integración (requieren `postgres-test`) y cobertura |
-| `pnpm audit`                                              | Auditoría de dependencias (falla con High o Critical)                   |
+| Script                                                    | Uso                                                                        |
+| --------------------------------------------------------- | -------------------------------------------------------------------------- |
+| `pnpm setup`                                              | Puesta en marcha completa del entorno de desarrollo                        |
+| `pnpm dev` / `pnpm dev:worker`                            | App y worker en modo desarrollo                                            |
+| `pnpm build`                                              | Cliente Prisma, build de Next.js, service worker (PWA) y bundle del worker |
+| `pnpm start` / `pnpm start:worker`                        | Ejecutar el build de producción                                            |
+| `pnpm db:migrate` / `db:deploy` / `db:seed` / `db:studio` | Base de datos                                                              |
+| `pnpm typecheck` / `pnpm lint` / `pnpm format`            | Calidad de código                                                          |
+| `pnpm test` / `test:int` / `test:coverage`                | Tests unitarios, de integración (requieren `postgres-test`) y cobertura    |
+| `pnpm test:e2e`                                           | E2E con Playwright y axe-core (requiere la app en marcha con el seed)      |
+| `pnpm secrets:rotate [--apply]`                           | Recifra los secretos con la clave activa (simulación por defecto)          |
+| `pnpm audit`                                              | Auditoría de dependencias (falla con High o Critical)                      |
 
 ## Estructura
 
@@ -153,6 +181,8 @@ src/
 - [Arquitectura](docs/ARCHITECTURE.md): capas, flujos y diagramas.
 - [Documento técnico](docs/TECHNICAL.md): decisiones, variables de entorno, datos, seguridad y escalabilidad.
 - [Manual de usuario](docs/USER_MANUAL.md): guía de uso y resolución de problemas.
+- [Despliegue](docs/DEPLOYMENT.md): VM con Docker y Caddy, TLS, copias de seguridad y operación.
+- [Proveedores de correo](docs/providers/): [Microsoft 365](docs/providers/m365.md), [Amazon SES](docs/providers/ses.md), [Resend](docs/providers/resend.md), [SMTP](docs/providers/smtp.md) y [DNS](docs/providers/dns.md).
 - [Decisiones de arquitectura (ADR)](docs/adr/).
 
 ## Roadmap
@@ -164,7 +194,9 @@ src/
 | 2    | Plantillas, documentos (HTML, MD, PDF, DOCX, PPTX) y miniaturas                                   | Completada |
 | 3    | Campañas, envío multi-proveedor (SMTP, Graph, Resend, SES), tracking y bajas                      | Completada |
 | 4    | IA (borradores, asuntos, traducción, segmentos) y automatizaciones con aprobación                 | Completada |
-| 5    | PWA, revisión i18n, hardening y documentación final                                               | Pendiente  |
+| 5    | PWA, webhooks y eventos, panel de plataforma, privacidad, accesibilidad, despliegue y documentos  | Completada |
+
+Fuera de alcance por ahora: servidor MCP propio, rebotes SMTP por IMAP, Azure Communication Services, dominio de seguimiento por tenant y notificaciones push.
 
 ## Licencia
 

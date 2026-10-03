@@ -7,6 +7,7 @@ import { Queue, Worker, type Processor } from 'bullmq';
 import type { Redis } from 'ioredis';
 import type { Server } from 'node:http';
 import { getServerEnv } from '@/common/config/env';
+import { isWebhookRetryError } from '@/core/webhooks/webhooks.use-cases';
 import {
   configureContainer,
   getLogger,
@@ -30,6 +31,7 @@ import {
 import { createContactImportProcessor } from './processors/contact-import.processor';
 import { createDocumentProcessor } from './processors/document-process.processor';
 import { createMaintenanceProcessor } from './processors/maintenance.processor';
+import { createOutboundWebhookProcessor } from './processors/webhook.processor';
 import { registerMaintenanceSchedulers } from './schedulers';
 
 function startWorker(
@@ -41,12 +43,17 @@ function startWorker(
     connection: options.connection,
     concurrency: options.concurrency,
   });
-  worker.on('failed', (job, error) =>
-    options.logger.error(
-      { err: error, queue: name, jobName: job?.name, attemptsMade: job?.attemptsMade },
-      'Job fallido',
-    ),
-  );
+  worker.on('failed', (job, error) => {
+    const details = {
+      err: error,
+      queue: name,
+      jobName: job?.name,
+      attemptsMade: job?.attemptsMade,
+    };
+    // Un destino de webhook caído es un fallo externo esperado: aviso, no error.
+    if (isWebhookRetryError(error)) options.logger.warn(details, 'Webhook pendiente de reintento');
+    else options.logger.error(details, 'Job fallido');
+  });
   worker.on('error', (error) =>
     options.logger.error({ err: error, queue: name }, 'Error del worker'),
   );
@@ -69,6 +76,13 @@ async function main(): Promise<void> {
         getWorkerHeartbeat(),
         useCases.campaignMaintenance(),
         useCases.approvals(),
+        {
+          execute: async () => {
+            const purged = await useCases.retention().execute();
+            logger.info({ purged }, 'Retención de datos aplicada');
+            return purged;
+          },
+        },
       ),
       {
         connection,
@@ -110,6 +124,11 @@ async function main(): Promise<void> {
       QUEUE_NAMES.automationRun,
       createAutomationRunProcessor({ run: useCases.runAutomation() }),
       { connection, concurrency: 2, logger },
+    ),
+    startWorker(
+      QUEUE_NAMES.outboundWebhook,
+      createOutboundWebhookProcessor({ deliver: useCases.deliverWebhook() }),
+      { connection, concurrency: 4, logger },
     ),
   ];
 

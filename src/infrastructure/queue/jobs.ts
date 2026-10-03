@@ -6,13 +6,19 @@ import { Queue } from 'bullmq';
 import type { Redis } from 'ioredis';
 import { z } from 'zod';
 import type { AutomationRef, AutomationScheduler } from '@/core/automations/ports';
-import { cronFor } from '@/core/automations/automation';
+import {
+  AUTOMATION_TRIGGERS,
+  cronFor,
+  type AutomationTrigger,
+} from '@/core/automations/automation';
 import type { CampaignQueue } from '@/core/campaigns/ports';
 import type { ProviderEventQueue } from '@/core/campaigns/use-cases/provider-events.use-cases';
 import type { ContactImportQueue } from '@/core/contacts/ports';
 import type { SystemMailMessage, SystemMailQueue } from '@/core/identity/system-mail';
 import type { DocumentQueue } from '@/core/documents/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
+import type { WebhookQueue } from '@/core/webhooks/webhook';
+import { WEBHOOK_DELIVERY_ATTEMPTS } from '@/core/webhooks/webhooks.use-cases';
 import { currentTraceId } from '../observability/trace-context';
 import { QUEUE_NAMES } from './queue-names';
 
@@ -227,9 +233,13 @@ export const automationRunJobSchema = z.object({
   tenantId: z.uuid(),
   tenantSlug: z.string().min(1),
   automationId: z.uuid(),
-  trigger: z.enum(['schedule', 'manual']),
-  /** Solo en ejecuciones manuales; las programadas usan el id del job (único por fecha). */
+  trigger: z.enum(AUTOMATION_TRIGGERS),
+  /** Manuales y por evento; las programadas usan el id del job (único por fecha). */
   idempotencyKey: z.string().max(120).optional(),
+  /** Evento de la API que disparó la ejecución. */
+  event: z
+    .object({ key: z.string().max(64), data: z.record(z.string(), z.unknown()).nullable() })
+    .optional(),
 });
 export type AutomationRunJob = z.infer<typeof automationRunJobSchema>;
 
@@ -280,7 +290,8 @@ export class BullAutomationScheduler implements AutomationScheduler {
     context: TenantContext,
     automationId: string,
     idempotencyKey: string,
-    trigger: 'schedule' | 'manual',
+    trigger: AutomationTrigger,
+    event?: { key: string; data: Record<string, unknown> | null },
   ): Promise<void> {
     await this.queue.add(
       'run',
@@ -290,8 +301,46 @@ export class BullAutomationScheduler implements AutomationScheduler {
         automationId,
         trigger,
         idempotencyKey,
+        ...(event ? { event } : {}),
       },
       { ...AUTOMATION_JOB_OPTIONS, jobId: ['automation', automationId, idempotencyKey].join('-') },
+    );
+  }
+
+  async close(): Promise<void> {
+    await this.queue.close();
+  }
+}
+
+export const outboundWebhookJobSchema = z.object({
+  tenantId: z.uuid(),
+  tenantSlug: z.string().min(1),
+  deliveryId: z.uuid(),
+});
+export type OutboundWebhookJob = z.infer<typeof outboundWebhookJobSchema>;
+
+/** Entregas de webhooks salientes: 8 intentos con backoff exponencial (≈ 1 min a 2 h). */
+export class BullWebhookQueue implements WebhookQueue {
+  private readonly queue: Queue<OutboundWebhookJob>;
+
+  constructor(connection: Redis) {
+    this.queue = new Queue<OutboundWebhookJob>(QUEUE_NAMES.outboundWebhook, { connection });
+  }
+
+  async enqueue(context: TenantContext, deliveryIds: readonly string[]): Promise<void> {
+    if (deliveryIds.length === 0) return;
+    await this.queue.addBulk(
+      deliveryIds.map((deliveryId) => ({
+        name: 'deliver',
+        data: { tenantId: context.tenantId, tenantSlug: context.tenantSlug, deliveryId },
+        opts: {
+          jobId: 'webhook-' + deliveryId,
+          attempts: WEBHOOK_DELIVERY_ATTEMPTS,
+          backoff: { type: 'exponential', delay: 60_000 },
+          removeOnComplete: true,
+          removeOnFail: 500,
+        },
+      })),
     );
   }
 

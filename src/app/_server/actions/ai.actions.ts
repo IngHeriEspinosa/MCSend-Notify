@@ -2,13 +2,14 @@
 
 /**
  * Server Actions de IA: configuración del tenant y asistencia (borrador, asuntos, traducción,
- * tono, segmentos y resumen de resultados). Las de asistencia tienen un límite de 30 peticiones
+ * tono, segmentos, resumen de resultados y texto alternativo de imágenes). Las de asistencia tienen un límite de 30 peticiones
  * por hora y usuario, además del presupuesto mensual del tenant.
  */
 import { tenantAction } from '@/app/_server/action-client';
 import { aiSettingsInputSchema } from '@/core/ai/ai';
 import {
   adjustToneSchema,
+  altTextSchema,
   draftCampaignSchema,
   segmentFromTextSchema,
   suggestSubjectsSchema,
@@ -87,6 +88,15 @@ export const summarizeResultsAction = tenantAction(
   async (input, context) => {
     await limited(context);
     return useCases.aiAssist().summarizeResults(context, input);
+  },
+  { refresh: false },
+);
+
+export const altTextAction = tenantAction(
+  altTextSchema,
+  async (input, context) => {
+    await limited(context);
+    return useCases.aiAssist().altText(context, input);
   },
   { refresh: false },
 );

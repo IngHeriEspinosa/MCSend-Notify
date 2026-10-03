@@ -6,6 +6,7 @@
  * sistema acotado a su tenant. Los escáneres de enlaces y las aperturas automáticas se registran
  * marcados y no cuentan como interacción humana.
  */
+import type { EventPublisher } from '@/core/webhooks/webhook';
 import { z } from 'zod';
 import type { Clock } from '@/core/shared/ports';
 import { systemContext, type TenantContext } from '@/core/shared/tenant-context';
@@ -19,6 +20,8 @@ import type {
 } from '../ports';
 
 export interface TrackingDeps {
+  /** Webhooks salientes (`contact.unsubscribed`). */
+  events?: EventPublisher;
   campaigns: CampaignRepository;
   deliveries: DeliveryRepository;
   preferences: RecipientPreferencesRepository;
@@ -124,7 +127,7 @@ export class TrackingUseCase {
     await this.recordUnsubscribe(
       context,
       delivery,
-      { scope: campaign?.topicId ? 'topic' : 'all' },
+      { scope: campaign?.topicId ? 'topic' : 'all', topicId: campaign?.topicId ?? null },
       meta,
     );
     return true;
@@ -183,11 +186,18 @@ export class TrackingUseCase {
 
   private async recordUnsubscribe(
     context: TenantContext,
-    delivery: { id: string; campaignId: string },
+    delivery: { id: string; campaignId: string; contactId: string; email: string },
     metadata: Record<string, unknown>,
     meta: TrackingMeta,
   ) {
     const now = this.deps.clock.now();
+    await this.deps.events?.publish(context, 'contact.unsubscribed', {
+      contactId: delivery.contactId,
+      email: delivery.email,
+      campaignId: delivery.campaignId,
+      ...metadata,
+      occurredAt: now.toISOString(),
+    });
     await this.deps.deliveries.recordUnsubscribe(context, delivery.id, now);
     await this.deps.deliveries.addEvent(context, {
       deliveryId: delivery.id,

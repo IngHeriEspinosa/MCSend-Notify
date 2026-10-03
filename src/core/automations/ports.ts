@@ -11,11 +11,13 @@ import type {
   AutomationRunStatus,
   AutomationSchedule,
   AutomationSummary,
+  AutomationTrigger,
   OnTimeoutAction,
 } from './automation';
 
 export interface AutomationWrite {
   name: string;
+  eventKey: string | null;
   schedule: AutomationSchedule;
   timezone: string;
   definition: AutomationDefinition;
@@ -43,6 +45,8 @@ export interface AutomationRepository {
     input: AutomationWrite,
   ): Promise<AutomationRecord>;
   setEnabled(context: TenantContext, automationId: string, enabled: boolean): Promise<boolean>;
+  /** Automatizaciones activas que escuchan un evento de la API. */
+  findByEventKey(context: TenantContext, eventKey: string): Promise<AutomationRecord[]>;
   setLastRun(context: TenantContext, automationId: string, at: Date): Promise<void>;
   delete(context: TenantContext, automationId: string): Promise<boolean>;
   /** Automatizaciones activas de todos los tenants (sincronizar la programación al arrancar). */
@@ -66,7 +70,7 @@ export interface AutomationRunRepository {
    */
   start(
     context: TenantContext,
-    input: { automationId: string; idempotencyKey: string; trigger: 'schedule' | 'manual' },
+    input: { automationId: string; idempotencyKey: string; trigger: AutomationTrigger },
   ): Promise<{ run: AutomationRunRecord; created: boolean }>;
   /** Vuelve a RUNNING una ejecución FAILED para reintentarla (mismo id). */
   restart(context: TenantContext, runId: string): Promise<boolean>;
@@ -128,7 +132,8 @@ export interface AutomationScheduler {
     context: TenantContext,
     automationId: string,
     idempotencyKey: string,
-    trigger: 'schedule' | 'manual',
+    trigger: AutomationTrigger,
+    event?: { key: string; data: Record<string, unknown> | null },
   ): Promise<void>;
 }
 

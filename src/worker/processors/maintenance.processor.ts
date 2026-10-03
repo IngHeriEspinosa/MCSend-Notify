@@ -1,6 +1,7 @@
 /**
  * Procesador de la cola de mantenimiento: latido del worker, barridos de campañas
- * (programadas vencidas, campañas terminadas y entregas interrumpidas) y caducidad de aprobaciones.
+ * (programadas vencidas, campañas terminadas y entregas interrumpidas), caducidad de aprobaciones
+ * y purga diaria de datos antiguos (retención).
  */
 import type { Job } from 'bullmq';
 import type { WorkerHeartbeat } from '@/infrastructure/observability/worker-heartbeat';
@@ -23,10 +24,15 @@ export interface ApprovalSweeps {
   expireDue(): Promise<number>;
 }
 
+export interface RetentionSweep {
+  execute(): Promise<Record<string, number>>;
+}
+
 export function createMaintenanceProcessor(
   heartbeat: Pick<WorkerHeartbeat, 'beat'>,
   campaigns?: CampaignSweeps,
   approvals?: ApprovalSweeps,
+  retention?: RetentionSweep,
 ) {
   return async function processMaintenanceJob(job: Pick<Job, 'name'>): Promise<void> {
     switch (job.name) {
@@ -44,6 +50,9 @@ export function createMaintenanceProcessor(
         return;
       case MAINTENANCE_JOBS.approvalsExpire:
         await approvals?.expireDue();
+        return;
+      case MAINTENANCE_JOBS.retentionSweep:
+        await retention?.execute();
         return;
       default:
         throw new UnknownMaintenanceJobError(job.name);

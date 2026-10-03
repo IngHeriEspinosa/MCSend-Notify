@@ -85,7 +85,8 @@ Decisiones de la Fase 4:
 | `WORKER_HEALTH_PORT`                                                   | No (`9464`)                  | Puerto del servidor de salud del worker                                                    |
 | `POPPLER_BIN_DIR`                                                      | No (PATH)                    | Carpeta de `pdfinfo`, `pdftoppm` y `pdftotext` (worker fuera de Docker)                    |
 | `EMAIL_SEND_CONCURRENCY`                                               | No (`20`)                    | Envíos simultáneos por réplica del worker                                                  |
-| `SSRF_ALLOW_PRIVATE`                                                   | No (`false`)                 | Permite hosts SMTP en redes privadas (solo desarrollo, para Mailpit)                       |
+| `SSRF_ALLOW_PRIVATE`                                                   | No (`false`)                 | Permite hosts privados (SMTP, fuentes de IA, webhooks salientes) solo en desarrollo        |
+| `CLAMAV_HOST`, `CLAMAV_PORT`                                           | No (vacío, `3310`)           | Antivirus de documentos (clamd). En Docker basta con dar cualquier valor a `CLAMAV_HOST`   |
 | `SYSTEM_MAIL_SMTP_URL`                                                 | No                           | SMTP de plataforma (`smtp://` o `smtps://`) para invitaciones y recuperación de contraseña |
 | `SYSTEM_MAIL_FROM`                                                     | No                           | Remitente del correo del sistema                                                           |
 | `PLATFORM_AI_ANTHROPIC_API_KEY`                                        | No                           | Clave de Anthropic de la plataforma (opción «IA de la plataforma»)                         |
@@ -116,6 +117,13 @@ Variables de cifrado (`getEncryptionEnv()`, app y worker):
 | `ENCRYPTION_ACTIVE_KEY_ID` | Sí          | Id. de la clave con la que se cifra; las demás solo descifran      |
 
 Sin `SYSTEM_MAIL_SMTP_URL`, las invitaciones siguen funcionando con el enlace de un solo uso y los correos del sistema (invitación y recuperación de contraseña) no se envían: el job `system-mail` falla y queda registrado en el log del worker.
+
+Variables solo de Compose en producción ([compose.prod.yaml](../compose.prod.yaml)):
+
+| Variable     | Obligatoria | Descripción                                                                        |
+| ------------ | ----------- | ---------------------------------------------------------------------------------- |
+| `APP_DOMAIN` | Sí          | Dominio que sirve Caddy (debe coincidir con el host de `APP_URL`)                  |
+| `CADDY_TLS`  | No (`acme`) | `acme`: Let's Encrypt; `internal`: CA local de Caddy para redes internas y pruebas |
 
 Debe haber al menos un método de inicio de sesión activo. `.env.example` documenta además las variables de fases posteriores (cifrado, tracking, correo del sistema e IA) y las del seed (`SEED_ADMIN_EMAIL`, `SEED_ADMIN_PASSWORD`). `pnpm setup` genera los secretos con `crypto.randomBytes`, completa un `.env` existente con las variables nuevas y nunca imprime los valores.
 
@@ -252,11 +260,11 @@ El cliente Prisma se genera en `src/infrastructure/persistence/prisma/generated`
 
 ## 4. Servicios y salud
 
-| Endpoint                    | Tipo                 | Respuesta                                                                                                                                                                           |
-| --------------------------- | -------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `GET /api/health`           | Liveness             | `200` si el proceso web responde                                                                                                                                                    |
-| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas                                                                                                                                       |
-| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers (`maintenance`, `contact-import`, `document-process`, `campaign-dispatch`, `email-send`, `provider-events`, `system-mail`) corren |
+| Endpoint                    | Tipo                 | Respuesta                                                                                                                                                                                                                 |
+| --------------------------- | -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `GET /api/health`           | Liveness             | `200` si el proceso web responde                                                                                                                                                                                          |
+| `GET /api/health/ready`     | Readiness            | `200` o `503` según las dependencias críticas                                                                                                                                                                             |
+| `GET :9464/health` (worker) | Liveness y readiness | `200` si Redis está conectado y todos los workers (`maintenance`, `contact-import`, `document-process`, `campaign-dispatch`, `email-send`, `provider-events`, `system-mail`, `automation-run`, `outbound-webhook`) corren |
 
 La readiness distingue dos tipos de dependencias:
 
@@ -264,6 +272,22 @@ La readiness distingue dos tipos de dependencias:
 - **Informativas:** Gotenberg y el latido del worker.
 
 La respuesta pública solo indica `up` o `down`. El detalle del error va a los logs, para no exponer hosts ni cadenas de conexión.
+
+### Colas de trabajo (BullMQ)
+
+| Cola                | Productor                                | Intentos y espera                 | Notas                                                                |
+| ------------------- | ---------------------------------------- | --------------------------------- | -------------------------------------------------------------------- |
+| `maintenance`       | Programaciones del worker                | —                                 | Latido (30 s), barridos de campañas, aprobaciones y retención diaria |
+| `contact-import`    | Subida de CSV/XLSX                       | 3                                 | Streaming por lotes                                                  |
+| `document-process`  | Subida de documentos                     | 3, exponencial                    | Antivirus opcional → PDF → miniatura → texto                         |
+| `campaign-dispatch` | Envío o programación de una campaña      | 5, exponencial                    | jobId por versión de campaña (idempotente)                           |
+| `email-send`        | Despacho                                 | 6, exponencial 30 s (tope 30 min) | Límites por proveedor en Redis; aplazamiento sin gastar intentos     |
+| `provider-events`   | Webhooks entrantes de proveedores        | 5, exponencial                    | jobId por evento (deduplicado)                                       |
+| `system-mail`       | Invitaciones, recuperación, aprobaciones | 5, exponencial 15 s               | SMTP de plataforma                                                   |
+| `automation-run`    | Programación, «Ejecutar ahora» y eventos | 3, exponencial 1 min              | Clave idempotente por fecha, ejecución manual o id de evento         |
+| `outbound-webhook`  | Eventos de negocio (`EventPublisher`)    | 8, exponencial 1 min (≈ 2 h)      | Un job por entrega; un destino caído se registra como aviso          |
+
+Los trabajos que agotan sus intentos se conservan como fallidos y se pueden reintentar o descartar desde **Administración › Colas** (`/admin/queues`, solo SUPER_ADMIN; queda auditado).
 
 ## 5. Observabilidad
 
@@ -279,43 +303,51 @@ La respuesta pública solo indica `up` o `down`. El detalle del error va a los l
 
 ## 6. Seguridad (OWASP)
 
-| Control                 | Implementación                                                                                                                                        |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------- |
-| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción              |
-| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                            |
-| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                          |
-| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                             |
-| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                       |
-| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                    |
-| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                       |
-| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                     |
-| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                    |
-| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                         |
-| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                         |
-| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                         |
-| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                     |
-| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas         |
-| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                           |
-| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                       |
-| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea         |
-| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`       |
-| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp                 |
-| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                    |
-| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                          |
-| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                                |
-| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                      |
-| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com`   |
-| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                        |
-| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                     |
-| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                     |
-| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                        |
-| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                  |
-| Inyección de prompts    | Fuentes como datos `<source>`; lista blanca de enlaces citables; traducción por unidades; la IA nunca envía; aprobación humana por defecto (ADR 0011) |
-| SSRF en fuentes de IA   | `safeFetch`: solo hosts públicos y puertos 80/443, DNS fijado, metadatos bloqueados siempre, 3 redirecciones, 2 MB, 10 s; XML sin DOCTYPE             |
-| Claves de IA            | Cifradas con AAD por fila; nunca vuelven a la interfaz; no se reenvían a otro origen en redirecciones                                                 |
-| Coste de IA             | Presupuesto mensual por tenant, tope de la plataforma, 30 peticiones por hora y usuario, registro de cada llamada                                     |
-| Aprobaciones            | Sesión + POST (los escáneres de enlaces no deciden); solo aprobadores con permiso de envío; versión de plantilla congelada                            |
-| Privacidad con IA       | Al modelo solo llegan las fuentes y los textos de la tarea; nunca la lista de contactos (comprobado en la E2E)                                        |
+| Control                 | Implementación                                                                                                                                         |
+| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción               |
+| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                             |
+| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                           |
+| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                              |
+| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                        |
+| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                     |
+| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                        |
+| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                      |
+| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                     |
+| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                          |
+| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                          |
+| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                          |
+| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                      |
+| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas          |
+| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                            |
+| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                        |
+| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea          |
+| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`        |
+| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp                  |
+| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                     |
+| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                           |
+| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                                 |
+| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                       |
+| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com`    |
+| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                         |
+| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                      |
+| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                      |
+| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                         |
+| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                   |
+| Inyección de prompts    | Fuentes como datos `<source>`; lista blanca de enlaces citables; traducción por unidades; la IA nunca envía; aprobación humana por defecto (ADR 0011)  |
+| SSRF en fuentes de IA   | `safeFetch`: solo hosts públicos y puertos 80/443, DNS fijado, metadatos bloqueados siempre, 3 redirecciones, 2 MB, 10 s; XML sin DOCTYPE              |
+| Claves de IA            | Cifradas con AAD por fila; nunca vuelven a la interfaz; no se reenvían a otro origen en redirecciones                                                  |
+| Coste de IA             | Presupuesto mensual por tenant, tope de la plataforma, 30 peticiones por hora y usuario, registro de cada llamada                                      |
+| Aprobaciones            | Sesión + POST (los escáneres de enlaces no deciden); solo aprobadores con permiso de envío; versión de plantilla congelada                             |
+| Privacidad con IA       | Al modelo solo llegan las fuentes y los textos de la tarea; nunca la lista de contactos (comprobado en la E2E)                                         |
+| Texto alternativo (IA)  | Imagen de la biblioteca o URL https con `safeFetch` (5 MB, sin SVG), reescalada sin metadatos y nunca guardada; salida sin enlaces ni Markdown         |
+| Webhooks salientes      | Destino validado con `safeFetch` sin redirecciones; firma HMAC con timestamp; secreto cifrado y mostrado una vez; auto-desactivación (ADR 0014)        |
+| API de eventos          | Ámbito `events:write`, cuerpo máx. 16 KB, nombre de evento con formato restringido, disparo idempotente por `id`; datos tratados como fuente no fiable |
+| PWA                     | El service worker nunca guarda páginas, API ni datos de tenants (solo recursos estáticos); CSP propia para `/sw.js` (ADR 0013)                         |
+| RGPD                    | Supresión del contacto con anonimización de entregas; retención de 13 meses / 90 / 30 días según la tabla; IP como HMAC (ADR 0015)                     |
+| Rotación de claves      | `pnpm secrets:rotate` recifra proveedores, IA y webhooks con escritura condicional; informa de filas ilegibles                                         |
+| Antivirus               | ClamAV opcional por `INSTREAM`; malware → original borrado y documento `FAILED`; antivirus caído → no se procesa (se reintenta)                        |
+| Panel de plataforma     | `/admin/*` solo para SUPER_ADMIN (comprobado en layout, acción y caso de uso); reintentos y descartes de jobs auditados                                |
 
 Decisión sobre estilos: `style-src` permite `'unsafe-inline'` porque MUI, Emotion y React usan atributos `style`. El riesgo de inyección de estilos es bajo frente al de scripts, que sí exige nonce.
 
@@ -404,13 +436,28 @@ En la Fase 4 (con un servidor simulado compatible con OpenAI, porque no hay clav
 - **Privacidad:** se revisaron los prompts recibidos por el modelo y no contenían datos de contactos.
 - **Unitarios del SDK:** con un `fetch` falso inyectado se comprueba que la petición no lleva `temperature`, `thinking` ni `tool_choice`, que `effort` solo va en los modelos que lo admiten y que `refusal` y `max_tokens` se tratan.
 
+En la Fase 5 la verificación de extremo a extremo pasa a ser una suite versionada de **Playwright 1.63 + axe-core 4.13** ([tests/e2e](../tests/e2e), `pnpm test:e2e`), con el Chrome del sistema:
+
+- **Accesibilidad (WCAG 2.2 AA):** 4 páginas públicas y 31 de la aplicación (ES y EN), más 3 en modo oscuro, sin incumplimientos graves ni críticos de axe; además, ningún error de consola y ninguna clave de traducción sin resolver.
+- **Teclado:** enlace para saltar al contenido, inicio de sesión solo con teclado (error en `role="alert"`) y página actual marcada en el menú.
+- **PWA:** manifiesto, registro del service worker, `Page.getInstallabilityErrors` vacío, página offline en ES y EN, caché sin rutas de tenants ni API, aviso sin conexión.
+- **Webhooks:** alta con secreto mostrado una vez, evento de prueba recibido por un servidor local con **firma verificada**, registro de entregas, rotación y borrado.
+- **API de eventos:** clave con `events:write` → 202; nombre inválido → 422; sin clave → 401; clave revocada → 401; la misma clave no lee contactos (403).
+- **RGPD:** supresión de un contacto desde la ficha. **Panel de colas** con todas las colas del worker.
+
+La suite se ejecuta contra la build de producción (`pnpm build && pnpm start` + worker) o contra el despliegue con Caddy (`E2E_BASE_URL=https://mcsend.localhost` y `E2E_TRUSTED_SPKI` con la huella de la CA de Caddy). Variables: `E2E_EMAIL`/`E2E_PASSWORD` (por defecto, las del seed), `E2E_TENANT`, `E2E_WEBHOOK_DELIVERY=true` y `E2E_WEBHOOK_HOST` para comprobar la entrega real.
+
+Los hallazgos de axe en la primera ejecución se corrigieron en el código (no en los tests): listas del menú sin `<li>`, foco dentro de un contenedor `aria-hidden` en la gráfica del inicio y contraste insuficiente (3,85:1) del color informativo.
+
 El test del matcher del proxy compila el patrón con la misma función que usa Next.js. Next.js elimina las barras invertidas, y un `\.` mal puesto dejaba sin CSP ni idioma a todas las páginas salvo la raíz.
 
 ## 9. Escalabilidad
 
 - **App web:** no guarda estado. Se puede escalar horizontalmente detrás de Caddy, porque las sesiones son JWT y el estado vive en PostgreSQL y Redis.
 - **Worker:** los límites de envío (ritmo GCRA y cupos) viven en Redis y usan su reloj, así que se pueden añadir réplicas del worker sin superar los límites de cada proveedor. La idempotencia está en la base de datos (claves únicas y CAS), no en el proceso. `EMAIL_SEND_CONCURRENCY` fija los envíos simultáneos por réplica.
-- **PostgreSQL:** índices compuestos por `tenantId`. Se prevé particionado mensual de eventos de entrega y RLS como capa adicional (Fase 5).
+- **PostgreSQL:** índices compuestos por `tenantId`. La retención diaria (ADR 0015) acota el crecimiento de `delivery_events`, `ai_usage`, `inbound_webhook_events` y `webhook_deliveries` borrando por lotes.
+  - **Particionado mensual de `delivery_events`:** no se aplica todavía. Con la retención de 13 meses, el volumen previsto (decenas de millones de filas) se sirve bien con el índice `(tenant_id, occurred_at)`. Si se supera, se migra a una tabla particionada por `occurred_at` y la retención pasa a ser `DROP` de particiones.
+  - **RLS de PostgreSQL:** se mantiene como opción. El aislamiento actual tiene tres capas (puertos con `TenantContext`, extensión de Prisma y guardia DMMF, ver ADR 0005). RLS exigiría fijar `app.tenant_id` por transacción en cada consulta y un rol distinto para el worker; se valorará si se abre acceso SQL directo a terceros.
 - **Archivos:** el puerto de almacenamiento es S3 estándar. Migrar a AWS S3 o Cloudflare R2 solo cambia variables de entorno.
 
 ## 10. Problemas conocidos y soluciones
@@ -437,3 +484,10 @@ El test del matcher del proxy compila el patrón con la misma función que usa N
 | Ollama local no responde desde Docker                         | Host privado bloqueado (SSRF)                                        | En desarrollo, `SSRF_ALLOW_PRIVATE=true` y `http://host.docker.internal:11434/v1` |
 | Una ejecución queda «Omitida»                                 | No había novedades nuevas en el periodo                              | Publicar novedades o desactivar «No enviar si no hay novedades»                   |
 | `pnpm audit` informa de `braces` (High)                       | Advisory sin versión parcheada publicada (solo herramientas de lint) | Volver a auditar cuando exista `braces@3.0.4`                                     |
+| Webhook saliente en «Fallido» con `BLOCKED`                   | Destino en red privada o sin resolver (SSRF)                         | Usar una URL pública; en desarrollo, `SSRF_ALLOW_PRIVATE=true`                    |
+| Destino de webhook «Desactivado» sin tocarlo                  | 20 fallos definitivos seguidos                                       | Corregir el receptor, editar el destino y marcarlo como activo                    |
+| `POST /api/v1/events` devuelve 403                            | La clave no tiene el permiso «Enviar eventos»                        | Crear una clave con ese permiso                                                   |
+| Un evento no dispara nada (`triggered: []`)                   | Ninguna automatización activa con ese evento                         | Escribir el evento en la automatización y activarla                               |
+| Documento en `FAILED` con `SCAN_UNAVAILABLE`                  | ClamAV no responde (o aún descarga firmas)                           | Esperar a que `clamav` esté _healthy_ y pulsar **Reintentar**                     |
+| `pnpm secrets:rotate` termina con código 2                    | Filas cifradas con una clave retirada                                | Volver a introducir esas credenciales; no retirar claves con filas pendientes     |
+| La PWA no aparece como instalable                             | Sin HTTPS (salvo `localhost`) o build de desarrollo                  | Servir con Caddy y TLS; el service worker solo se registra en producción          |

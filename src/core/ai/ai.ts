@@ -31,6 +31,7 @@ export const AI_PURPOSES = [
   'tone',
   'segment',
   'results_summary',
+  'alt_text',
   'connection_test',
 ] as const;
 export type AiPurpose = (typeof AI_PURPOSES)[number];

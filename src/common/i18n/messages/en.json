@@ -122,7 +122,9 @@
       "TEMPLATE_CHANGED": "The template changed while you were reviewing it. Reload the page and review it again.",
       "NO_RECIPIENTS": "The audience is empty: choose at least one list or segment.",
       "BLOCKING_ISSUES": "The campaign has errors that prevent sending.",
-      "UNEXPECTED": "Unexpected error during the run."
+      "UNEXPECTED": "Unexpected error during the run.",
+      "WEBHOOK_LIMIT": "The maximum of 10 webhook endpoints was reached.",
+      "IMAGE_UNAVAILABLE": "The image could not be retrieved: check that the URL is a public https URL pointing to a JPEG, PNG, GIF or WebP up to 5 MB, or that the document is ready."
     }
   },
   "Auth": {
@@ -192,6 +194,7 @@
     "tags": "Tags",
     "topics": "Subscription topics",
     "apiKeys": "API keys",
+    "webhooks": "Webhooks",
     "activity": "Activity",
     "content": "Content",
     "templates": "Templates",
@@ -221,7 +224,54 @@
     "defaultLocale": "Default language",
     "timezone": "Time zone",
     "status": "Status",
-    "created": "Application created"
+    "created": "Application created",
+    "nav": {
+      "label": "Platform administration",
+      "tenants": "Applications",
+      "queues": "Queues",
+      "aiUsage": "AI usage"
+    },
+    "queuesTitle": "Job queues",
+    "queuesSubtitle": "Worker queue status and jobs that exhausted their retries.",
+    "refresh": "Refresh",
+    "queue": "Queue",
+    "counters": {
+      "waiting": "Waiting",
+      "active": "Active",
+      "delayed": "Delayed",
+      "failed": "Failed",
+      "completed": "Completed"
+    },
+    "paused": "Paused",
+    "viewFailed": "View failed",
+    "failedTitle": "Failed jobs in {queue}",
+    "noFailed": "There are no failed jobs.",
+    "job": "Job",
+    "tenant": "Tenant",
+    "reason": "Reason",
+    "attempts": "Attempts",
+    "failedAt": "Failed at",
+    "retry": "Retry",
+    "discard": "Discard",
+    "retried": "Job sent back to the queue.",
+    "removed": "Job discarded.",
+    "aiUsageTitle": "AI usage by application",
+    "aiUsageSubtitle": "Calls, tokens and cost for the month (UTC). Platform cost covers tenants that use the platform key.",
+    "month": "Month",
+    "show": "Show",
+    "platformCost": "Cost on the platform key",
+    "totalCost": "Total cost",
+    "aiSource": "AI provider",
+    "aiSources": {
+      "PLATFORM": "Platform",
+      "OWN": "Own key",
+      "NONE": "Not configured"
+    },
+    "calls": "Calls",
+    "errors": "Errors",
+    "tokens": "Tokens",
+    "cost": "Cost",
+    "budget": "Monthly budget"
   },
   "Dashboard": {
     "title": "{tenant} overview",
@@ -290,7 +340,7 @@
     "noConsent": "No consent record",
     "created": "Contact created",
     "deleteTitle": "Delete this contact?",
-    "deleteBody": "Their personal data will be permanently erased (right to be forgotten).",
+    "deleteBody": "Their personal data will be permanently deleted (right to be forgotten): the contact, its lists and tags, and its email in the sending history. Campaign statistics are kept anonymously. If they had unsubscribed, their email stays on the suppression list so they are never emailed again.",
     "booleanUnset": "No value"
   },
   "Import": {
@@ -450,7 +500,8 @@
     "scopeNames": {
       "contacts:read": "Read contacts",
       "contacts:write": "Create and update contacts",
-      "changelog:write": "Publish news (changelog)"
+      "changelog:write": "Publish news (changelog)",
+      "events:write": "Send events that trigger automations"
     },
     "fieldsTitle": "Custom fields",
     "fieldsSubtitle": "Extra contact data for segmentation and personalisation.",
@@ -602,6 +653,8 @@
     "imageUrlHint": "Must start with https://.",
     "alt": "Alternative text",
     "altHint": "Describe the image for people who cannot see it. Required.",
+    "altGenerate": "Generate with AI",
+    "altGenerating": "Generating…",
     "imageLink": "Link on click (optional)",
     "width": "Width (px)",
     "dividerHint": "Horizontal separator line.",
@@ -677,7 +730,9 @@
       "RENDER_FAILED": "The thumbnail could not be generated.",
       "TOOLS_UNAVAILABLE": "Conversion tools are missing on the server (poppler). Contact the technical team.",
       "INVALID_FILE": "The file is damaged or password protected.",
-      "PROCESSING_ERROR": "Unexpected error while processing the document."
+      "PROCESSING_ERROR": "Unexpected error while processing the document.",
+      "MALWARE_DETECTED": "The antivirus detected malicious content. The file was deleted and will not be used in any email.",
+      "SCAN_UNAVAILABLE": "The file could not be scanned by the antivirus. Try again later or contact the technical team."
     },
     "downloadOriginal": "Download original",
     "openPdf": "Open PDF",
@@ -1155,6 +1210,7 @@
       "tone": "Tone adjustments",
       "segment": "Segments",
       "results_summary": "Results summaries",
+      "alt_text": "Alt text",
       "connection_test": "Connection tests"
     },
     "noUsage": "No usage this month yet.",
@@ -1207,6 +1263,8 @@
     "time": "Time",
     "timezone": "Time zone",
     "scheduleSummary": "{schedule} ({timezone}).",
+    "eventKey": "Triggering event (optional)",
+    "eventKeyHint": "Besides the schedule, it runs when an application sends this event to /api/v1/events (e.g. release.published). Lowercase letters, digits, dot, dash or underscore.",
     "schedules": {
       "daily": "Every day at {time}",
       "weekly": "Every {weekday} at {time}",
@@ -1247,7 +1305,8 @@
     "trigger": "Trigger",
     "triggers": {
       "schedule": "Scheduled",
-      "manual": "Manual"
+      "manual": "Manual",
+      "event": "API event"
     },
     "result": "Result",
     "runStatuses": {
@@ -1300,5 +1359,57 @@
     "approved": "Campaign approved: sending has started.",
     "rejected": "Campaign rejected: it went back to draft.",
     "removedLinks": "{count, plural, one {The AI proposed # link that was not in the sources and it was removed. Read the surrounding text carefully (possible injection) before approving:} other {The AI proposed # links that were not in the sources and they were removed. Read the surrounding text carefully (possible injection) before approving:}}"
+  },
+  "Pwa": {
+    "offlineBanner": "You are offline. Changes cannot be saved until the connection returns.",
+    "offlineTitle": "You are offline",
+    "offlineBody": "There is no internet connection. For security, MC Send Notify does not store your applications’ data on this device. Try again when you are back online.",
+    "retry": "Try again"
+  },
+  "Webhooks": {
+    "title": "Webhooks",
+    "subtitle": "Notify other systems when something happens in this tenant: sent campaigns, bounces, complaints, unsubscribes and more.",
+    "new": "New endpoint",
+    "editTitle": "Edit endpoint",
+    "empty": "There are no webhook endpoints yet.",
+    "url": "Endpoint URL",
+    "urlHint": "HTTPS recommended. Private addresses and redirects are not allowed.",
+    "events": "Events",
+    "eventsRequired": "Choose at least one event.",
+    "event": "Event",
+    "status": "Status",
+    "enabled": "Active",
+    "disabled": "Disabled",
+    "failures": "{count, plural, one {# consecutive failure} other {# consecutive failures}} (disabled at 20)",
+    "lastDelivery": "Last delivery",
+    "test": "Test",
+    "testQueued": "Test event queued.",
+    "deliveries": "Deliveries",
+    "deliveriesTitle": "Latest deliveries",
+    "noDeliveries": "No deliveries yet.",
+    "attempts": "Attempts",
+    "response": "Response",
+    "rotate": "Rotate secret",
+    "rotateTitle": "Rotate the signing secret?",
+    "rotateBody": "The current secret stops working as soon as the new one is generated. Update the receiver right away.",
+    "deleteTitle": "Delete the endpoint?",
+    "deleteBody": "Its delivery log and pending deliveries are deleted too.",
+    "secret": "Signing secret",
+    "secretTitle": "Signing secret",
+    "secretBody": "Copy it now: it will not be shown again. Store it in the receiver to verify signatures.",
+    "signatureHelp": "Each event is sent as a JSON POST. The {header} header contains v1= followed by the HMAC-SHA256 (hex) of “timestamp.body” using the endpoint secret, and x-mcsn-timestamp holds the timestamp in seconds. Reject signatures that do not match or are older than 5 minutes; use the event id to discard duplicates.",
+    "eventNames": {
+      "campaignSent": "Campaign sent",
+      "campaignApprovalRequested": "Approval requested",
+      "deliveryBounced": "Hard bounce",
+      "deliveryComplained": "Spam complaint",
+      "contactUnsubscribed": "Contact unsubscribed",
+      "automationRunFailed": "Automation failed"
+    },
+    "deliveryStatuses": {
+      "PENDING": "Retrying",
+      "SUCCEEDED": "Delivered",
+      "FAILED": "Failed"
+    }
   }
 }

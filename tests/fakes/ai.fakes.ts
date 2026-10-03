@@ -3,10 +3,12 @@ import type { FoundLink, LinkFinder } from '@/core/ai/guardrails';
 import {
   AiModelError,
   type AiConnection,
+  type AiImage,
   type AiSettingsRepository,
   type AiSettingsWrite,
   type AiUsageRepository,
   type AiUsageSummary,
+  type ImageLoader,
   type LanguageModel,
   type LanguageModelFactory,
   type NewAiUsage,
@@ -37,6 +39,7 @@ import type {
 import type { ChangelogEntryView, ChangelogRepository } from '@/core/changelog/changelog';
 import type { SystemMailMessage, SystemMailQueue } from '@/core/identity/system-mail';
 import type { ProviderStatus } from '@/core/providers/provider-config';
+import { DomainError } from '@/core/shared/domain-error';
 import type { SecretCipher } from '@/core/shared/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
 import { uuid } from './sending.fakes';
@@ -326,6 +329,12 @@ export class InMemoryAutomationRepository implements AutomationRepository {
     return this.automations.delete(id);
   }
 
+  async findByEventKey(_context: TenantContext, eventKey: string) {
+    return [...this.automations.values()].filter(
+      (automation) => automation.enabled && automation.eventKey === eventKey,
+    );
+  }
+
   async listEnabled(): Promise<AutomationRef[]> {
     return [...this.automations.values()]
       .filter((automation) => automation.enabled)
@@ -475,7 +484,12 @@ export class FakeMemberDirectory implements MemberDirectory {
 export class RecordingAutomationScheduler implements AutomationScheduler {
   readonly upserts: AutomationRef[] = [];
   readonly removed: string[] = [];
-  readonly runs: Array<{ automationId: string; key: string; trigger: string }> = [];
+  readonly runs: Array<{
+    automationId: string;
+    key: string;
+    trigger: string;
+    event?: { key: string; data: Record<string, unknown> | null };
+  }> = [];
 
   async upsert(ref: AutomationRef) {
     this.upserts.push(ref);
@@ -485,8 +499,14 @@ export class RecordingAutomationScheduler implements AutomationScheduler {
     this.removed.push(automationId);
   }
 
-  async enqueueRun(_context: TenantContext, automationId: string, key: string, trigger: string) {
-    this.runs.push({ automationId, key, trigger });
+  async enqueueRun(
+    _context: TenantContext,
+    automationId: string,
+    key: string,
+    trigger: string,
+    event?: { key: string; data: Record<string, unknown> | null },
+  ) {
+    this.runs.push({ automationId, key, trigger, ...(event ? { event } : {}) });
   }
 }
 
@@ -494,5 +514,20 @@ export class RecordingMailQueue implements SystemMailQueue {
   readonly messages: SystemMailMessage[] = [];
   async enqueue(message: SystemMailMessage) {
     this.messages.push(message);
+  }
+}
+
+/** Imágenes de bloques: devuelve un PNG mínimo y registra lo pedido; `missing` no existe. */
+export class FakeImageLoader implements ImageLoader {
+  readonly loaded: Array<{ src: string | null; documentId: string | null }> = [];
+  async load(
+    _context: TenantContext,
+    source: { src: string | null; documentId: string | null },
+  ): Promise<AiImage> {
+    if (source.documentId === 'missing') {
+      throw new DomainError('VALIDATION', 'Sin imagen', { reason: 'IMAGE_UNAVAILABLE' });
+    }
+    this.loaded.push(source);
+    return { mediaType: 'image/png', base64: 'iVBORw0KGgo=' };
   }
 }

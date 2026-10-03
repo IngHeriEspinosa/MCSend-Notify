@@ -244,3 +244,55 @@ describe('ManageDocumentsUseCase', () => {
     ).rejects.toMatchObject({ code: 'NOT_FOUND' });
   });
 });
+
+describe('antivirus (opcional)', () => {
+  // Antivirus simulado: marca como infectado lo que contenga la cadena de prueba EICAR.
+  const EICAR = 'EICAR-STANDARD-ANTIVIRUS-TEST-FILE';
+  const scanner = {
+    async scan(content: Uint8Array) {
+      return new TextDecoder().decode(content).includes(EICAR)
+        ? { infected: true as const, signature: 'Eicar-Test-Signature' }
+        : { infected: false as const };
+    },
+  };
+
+  it('un archivo limpio se procesa con normalidad', async () => {
+    const record = await upload('deck.pptx');
+    await new ProcessDocumentUseCase({ ...deps, scanner }).execute(systemCtx, record.id, {
+      finalAttempt: false,
+    });
+    expect((await deps.documents.findById(systemCtx, record.id))?.status).toBe('READY');
+  });
+
+  it('con malware: borra el original, deja FAILED sin reintentar y lo audita', async () => {
+    const record = await upload('deck.pptx', EICAR);
+    const audit = new RecordingAuditLogger();
+    await new ProcessDocumentUseCase({ ...deps, scanner, audit }).execute(systemCtx, record.id, {
+      finalAttempt: false,
+    });
+    expect(await deps.documents.findById(systemCtx, record.id)).toMatchObject({
+      status: 'FAILED',
+      error: 'MALWARE_DETECTED',
+    });
+    expect(deps.storage.objects.has(record.storageKey)).toBe(false);
+    expect(deps.converter.calls).toEqual([]);
+    expect(audit.entries.at(-1)).toMatchObject({
+      action: 'document.malware_detected',
+      metadata: { signature: 'Eicar-Test-Signature' },
+    });
+  });
+
+  it('si el antivirus no responde, se reintenta (el documento no se da por limpio)', async () => {
+    const record = await upload('deck.pptx');
+    const down = {
+      scan: async (): Promise<never> => {
+        throw new DocumentProcessingError('SCAN_UNAVAILABLE', 'clamd caído');
+      },
+    };
+    const process = new ProcessDocumentUseCase({ ...deps, scanner: down });
+    await expect(process.execute(systemCtx, record.id, { finalAttempt: false })).rejects.toThrow();
+    expect(deps.converter.calls).toEqual([]);
+    await expect(process.execute(systemCtx, record.id, { finalAttempt: true })).rejects.toThrow();
+    expect((await deps.documents.findById(systemCtx, record.id))?.error).toBe('SCAN_UNAVAILABLE');
+  });
+});

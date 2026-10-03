@@ -29,10 +29,10 @@ Cada tenant guarda en la base de datos las credenciales de sus proveedores de co
 
 1. Añadir la clave nueva a `ENCRYPTION_KEYS` y apuntar `ENCRYPTION_ACTIVE_KEY_ID` a ella.
 2. Reiniciar la app y el worker. Las credenciales que se guarden a partir de entonces usan la clave nueva.
-3. Volver a guardar los proveedores, o ejecutar el script de rotación cuando exista, para recifrar las filas antiguas.
-4. Retirar la clave antigua cuando ninguna fila la use (`AesGcmSecretCipher.needsRotation`).
+3. Ejecutar `pnpm secrets:rotate` (simulación) y después `pnpm secrets:rotate --apply` para recifrar las filas antiguas. En Docker: `docker compose run --rm worker node dist/worker/rotate-secrets.mjs --apply`.
+4. Retirar la clave antigua cuando la simulación indique 0 filas por recifrar.
 
-El script `pnpm secrets:rotate`, que recifra todas las filas de forma automática, queda pendiente para la Fase 5.
+Desde la Fase 5 el script cubre también las credenciales de IA y los secretos de los webhooks salientes (ver [ADR 0015](0015-privacy-retention-keys.md)).
 
 ## Consecuencias
 

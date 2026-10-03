@@ -6,6 +6,7 @@ node_modules
 desing
 docs
 tests/e2e
+playwright.config.ts
 playwright-report
 test-results
 .env

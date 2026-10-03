@@ -6,6 +6,7 @@
  * el orden se cambia con botones, no solo arrastrando (WCAG 2.1.1).
  */
 import AddOutlined from '@mui/icons-material/AddOutlined';
+import AutoAwesomeOutlined from '@mui/icons-material/AutoAwesomeOutlined';
 import ArrowDownwardOutlined from '@mui/icons-material/ArrowDownwardOutlined';
 import ArrowUpwardOutlined from '@mui/icons-material/ArrowUpwardOutlined';
 import ContentCopyOutlined from '@mui/icons-material/ContentCopyOutlined';
@@ -19,7 +20,7 @@ import ToggleButton from '@mui/material/ToggleButton';
 import ToggleButtonGroup from '@mui/material/ToggleButtonGroup';
 import Typography from '@mui/material/Typography';
 import { useTranslations } from 'next-intl';
-import { useState, type ReactNode } from 'react';
+import { createContext, useContext, useState, type ReactNode } from 'react';
 import {
   MAX_BLOCKS,
   MAX_COLUMN_BLOCKS,
@@ -115,6 +116,47 @@ function withNewIds<T extends EmailBlock | ColumnBlock>(block: T): T {
 }
 
 const emptyToNull = (value: string): string | null => (value.trim() === '' ? null : value);
+
+/** Genera el texto alternativo de una imagen con IA (null si falló; el error ya se notificó). */
+export type AltTextGenerator = (source: {
+  src: string | null;
+  documentId: string | null;
+}) => Promise<string | null>;
+
+const AltTextContext = createContext<AltTextGenerator | null>(null);
+
+function AltTextButton({
+  source,
+  onGenerated,
+  disabled,
+}: {
+  source: { src: string | null; documentId: string | null };
+  onGenerated: (alt: string) => void;
+  disabled: boolean;
+}) {
+  const t = useTranslations('Blocks');
+  const generate = useContext(AltTextContext);
+  const [pending, setPending] = useState(false);
+  if (!generate) return null;
+  const ready = source.documentId ? true : /^https:\/\/[^/]+\.[^/]+/.test(source.src ?? '');
+  return (
+    <div>
+      <Button
+        size="small"
+        startIcon={<AutoAwesomeOutlined />}
+        disabled={disabled || pending || !ready}
+        onClick={async () => {
+          setPending(true);
+          const alt = await generate(source);
+          setPending(false);
+          if (alt) onGenerated(alt);
+        }}
+      >
+        {pending ? t('altGenerating') : t('altGenerate')}
+      </Button>
+    </div>
+  );
+}
 
 interface FieldsProps<T> {
   block: T;
@@ -294,6 +336,11 @@ function BlockFields({
             fullWidth
             helperText={t('altHint')}
             slotProps={{ htmlInput: { maxLength: 200 } }}
+          />
+          <AltTextButton
+            source={{ src: block.src, documentId: block.documentId }}
+            onGenerated={(alt) => onChange({ ...block, alt })}
+            disabled={disabled}
           />
           <div className="flex flex-col gap-3 sm:flex-row">
             <TextField
@@ -579,18 +626,28 @@ interface BlockEditorProps {
   onChange: (blocks: EmailBlock[]) => void;
   documents: readonly DocumentOption[];
   disabled: boolean;
+  /** Sin él (IA desactivada o sin permiso) no se muestra el botón de texto alternativo. */
+  generateAltText?: AltTextGenerator | undefined;
 }
 
-export function BlockEditor({ blocks, onChange, documents, disabled }: BlockEditorProps) {
+export function BlockEditor({
+  blocks,
+  onChange,
+  documents,
+  disabled,
+  generateAltText,
+}: BlockEditorProps) {
   return (
-    <BlockList<EmailBlock>
-      blocks={blocks}
-      onChange={onChange}
-      types={BLOCK_TYPES}
-      create={(type) => createBlock(type, documents)}
-      max={MAX_BLOCKS}
-      documents={documents}
-      disabled={disabled}
-    />
+    <AltTextContext.Provider value={generateAltText ?? null}>
+      <BlockList<EmailBlock>
+        blocks={blocks}
+        onChange={onChange}
+        types={BLOCK_TYPES}
+        create={(type) => createBlock(type, documents)}
+        max={MAX_BLOCKS}
+        documents={documents}
+        disabled={disabled}
+      />
+    </AltTextContext.Provider>
   );
 }

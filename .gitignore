@@ -20,6 +20,8 @@ src/infrastructure/persistence/prisma/generated/
 coverage/
 playwright-report/
 test-results/
+# Sesión guardada por las pruebas E2E
+tests/e2e/.auth/
 
 # Sistema
 .DS_Store
@@ -28,3 +30,7 @@ Thumbs.db
 
 # Certificados de CA específicos del entorno (ver docker/certs/README.md)
 docker/certs/*.crt
+
+# Service worker generado por scripts/build-sw.mjs
+public/sw.js
+public/sw.js.map

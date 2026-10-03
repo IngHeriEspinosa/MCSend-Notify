@@ -11,11 +11,22 @@ import type { TokenUsage } from './pricing';
 /** Profundidad de razonamiento (Claude `output_config.effort`); otros proveedores la ignoran. */
 export type AiEffort = 'low' | 'medium' | 'high';
 
+export const AI_IMAGE_MEDIA_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+export type AiImageMediaType = (typeof AI_IMAGE_MEDIA_TYPES)[number];
+
+/** Imagen adjunta a la petición (visión), ya normalizada y en base64. */
+export interface AiImage {
+  mediaType: AiImageMediaType;
+  base64: string;
+}
+
 export interface StructuredRequest<T> {
   /** Instrucciones estables (se cachean en Claude): reglas, marca y formato. */
   system: string;
   /** Petición concreta: fuentes envueltas como datos y lo que se pide. */
   prompt: string;
+  /** Imágenes que acompañan a la petición (van antes del texto). */
+  images?: readonly AiImage[];
   /** Esquema plano (sin transformaciones) que la API debe respetar y que se valida al recibirlo. */
   schema: z.ZodType<T>;
   schemaName: string;
@@ -156,4 +167,16 @@ export interface AiUsageRepository {
 export interface PlatformAiConfig {
   apiKey: string | null;
   maxMonthlyBudgetUsd: number;
+}
+
+/**
+ * Carga la imagen de un bloque para describirla: un documento de la biblioteca del tenant o una
+ * URL https externa (con protección SSRF y límite de tamaño). Lanza DomainError
+ * `IMAGE_UNAVAILABLE` si no se puede obtener una imagen válida.
+ */
+export interface ImageLoader {
+  load(
+    context: TenantContext,
+    source: { src: string | null; documentId: string | null },
+  ): Promise<AiImage>;
 }

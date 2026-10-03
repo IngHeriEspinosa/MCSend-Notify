@@ -164,6 +164,7 @@ describe('automatizaciones, ejecuciones y aprobaciones', () => {
   it('ejecuciones idempotentes, transiciones atómicas y aprobaciones decididas una sola vez', async () => {
     const automation = await automations.create(tenant, {
       name: `Resumen ${randomUUID().slice(0, 6)}`,
+      eventKey: null,
       schedule: { frequency: 'weekly', weekday: 1, hour: 9, minute: 0 },
       timezone: 'America/Santo_Domingo',
       definition: definition(),

@@ -21,7 +21,18 @@ const nextConfig: NextConfig = {
   reactStrictMode: true,
   serverExternalPackages: ['pino', 'pg', 'bullmq', 'ioredis'],
   async headers() {
-    return [{ source: '/:path*', headers: securityHeaders }];
+    return [
+      { source: '/:path*', headers: securityHeaders },
+      {
+        // El service worker nunca se cachea: los clientes reciben siempre la última versión.
+        source: '/sw.js',
+        headers: [
+          { key: 'Content-Type', value: 'application/javascript; charset=utf-8' },
+          { key: 'Cache-Control', value: 'no-cache, no-store, must-revalidate' },
+          { key: 'Content-Security-Policy', value: "default-src 'self'; script-src 'self'" },
+        ],
+      },
+    ];
   },
 };
 

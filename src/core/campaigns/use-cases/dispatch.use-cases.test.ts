@@ -1,4 +1,5 @@
 import { beforeEach, describe, expect, it } from 'vitest';
+import { RecordingEventPublisher } from '@tests/fakes/webhook.fakes';
 import {
   fakeAssetLinks,
   InMemoryBrandingRepository,
@@ -330,5 +331,31 @@ describe('CampaignMaintenanceUseCase', () => {
     expect(campaigns.campaigns.get(campaign.id)?.status).toBe('SENT');
     expect(await maintenance.enqueueDue()).toBe(1);
     expect(queue.dispatches.at(-1)).toEqual({ campaignId: due.id, version: 4, delayMs: 0 });
+  });
+});
+
+describe('webhooks salientes del mantenimiento', () => {
+  it('al cerrar una campaña publica campaign.sent con sus destinatarios', async () => {
+    const campaign = await dispatched(1);
+    const [only] = [...deliveries.deliveries.values()];
+    await sender().execute(systemCtx, only!.id, { finalAttempt: false });
+    const events = new RecordingEventPublisher();
+    const maintenance = new CampaignMaintenanceUseCase({
+      campaigns,
+      deliveries,
+      queue,
+      clock,
+      events,
+    });
+    expect(await maintenance.completeFinished()).toBe(1);
+    expect(events.published).toEqual([
+      {
+        type: 'campaign.sent',
+        data: expect.objectContaining({ campaignId: campaign.id, finishedAt: expect.any(String) }),
+      },
+    ]);
+    // Una segunda pasada no vuelve a publicar.
+    expect(await maintenance.completeFinished()).toBe(0);
+    expect(events.published).toHaveLength(1);
   });
 });

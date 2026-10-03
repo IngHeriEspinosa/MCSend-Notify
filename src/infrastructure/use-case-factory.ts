@@ -2,6 +2,7 @@
  * Construcción de los casos de uso con sus adaptadores (inyección por constructor).
  * La presentación (Server Actions, route handlers) y el worker solo dependen de este módulo.
  */
+import { getServerEnv } from '@/common/config/env';
 import { ContentCollector } from '@/core/ai/sources';
 import { AiAssistUseCase } from '@/core/ai/use-cases/ai-assist.use-cases';
 import { AiService } from '@/core/ai/use-cases/ai-service';
@@ -86,7 +87,15 @@ import {
   PreviewTemplateUseCase,
   type TemplateUseCaseDeps,
 } from '@/core/templates/use-cases/templates.use-cases';
+import { ManageQueuesUseCase, PlatformAiUsageUseCase } from '@/core/platform/platform-admin';
+import { ApplyRetentionUseCase, EraseContactUseCase } from '@/core/privacy/privacy';
 import { ManageBrandingUseCase } from '@/core/tenants/branding.use-cases';
+import {
+  DeliverWebhookUseCase,
+  ManageWebhooksUseCase,
+  WebhookPublisher,
+  type WebhookDeps,
+} from '@/core/webhooks/webhooks.use-cases';
 import {
   CreateTenantUseCase,
   GetTenantStatsUseCase,
@@ -124,8 +133,14 @@ import {
   getPublicAssetLinks,
   getSpreadsheetReader,
   getTenantClients,
+  getLogger,
+  getMalwareScanner,
+  getQueueAdmin,
+  getWebhookQueue,
+  getWebhookSender,
   memoize,
 } from './container';
+import { BlockImageLoader } from './ai/block-image-loader';
 import {
   Argon2PasswordHasher,
   cryptoIdGenerator,
@@ -149,6 +164,7 @@ import { SqlAudienceResolver } from './persistence/prisma/repositories/audience.
 import {
   PrismaAiSettingsRepository,
   PrismaAiUsageRepository,
+  PrismaPlatformAiUsageRepository,
 } from './persistence/prisma/repositories/ai.prisma-repositories';
 import {
   PrismaApprovalRepository,
@@ -157,6 +173,14 @@ import {
   PrismaMemberDirectory,
 } from './persistence/prisma/repositories/automation.prisma-repositories';
 import { PrismaChangelogRepository } from './persistence/prisma/repositories/changelog.prisma-repository';
+import {
+  PrismaPersonalDataEraser,
+  PrismaRetentionRepository,
+} from './persistence/prisma/repositories/privacy.prisma-repositories';
+import {
+  PrismaWebhookDeliveryRepository,
+  PrismaWebhookEndpointRepository,
+} from './persistence/prisma/repositories/webhook.prisma-repositories';
 import { PrismaCampaignRepository } from './persistence/prisma/repositories/campaign.prisma-repository';
 import { PrismaContactRepository } from './persistence/prisma/repositories/contact.prisma-repository';
 import { PrismaDeliveryRepository } from './persistence/prisma/repositories/delivery.prisma-repository';
@@ -247,6 +271,13 @@ const repositories = {
     memoize('repo.approvals', () => new PrismaApprovalRepository(getPrisma(), getTenantClients())),
   members: () =>
     memoize('repo.memberDirectory', () => new PrismaMemberDirectory(getTenantClients())),
+  webhookEndpoints: () =>
+    memoize('repo.webhookEndpoints', () => new PrismaWebhookEndpointRepository(getTenantClients())),
+  webhookDeliveries: () =>
+    memoize(
+      'repo.webhookDeliveries',
+      () => new PrismaWebhookDeliveryRepository(getTenantClients()),
+    ),
 };
 
 const services = {
@@ -291,6 +322,7 @@ function documentDeps(): DocumentUseCaseDeps {
     converter: getDocumentConverter(),
     pdf: getPdfToolkit(),
     images: getImageProcessor(),
+    scanner: getMalwareScanner(),
     queue: getDocumentQueue(),
     hasher: sha256ContentHasher,
     audit: repositories.audit(),
@@ -375,6 +407,29 @@ function aiService(): AiService {
         clock: systemClock,
       }),
   );
+}
+
+function webhookDeps(): WebhookDeps {
+  return {
+    endpoints: repositories.webhookEndpoints(),
+    deliveries: repositories.webhookDeliveries(),
+    queue: getWebhookQueue(),
+    cipher: getSecretCipher(),
+    tokens: services.tokens(),
+    audit: repositories.audit(),
+    clock: systemClock,
+    ids: cryptoIdGenerator,
+    onError: (error, context, eventType) =>
+      getLogger().warn(
+        { err: error, tenantId: context.tenantId, eventType },
+        'No se pudo publicar un evento de webhook',
+      ),
+  };
+}
+
+/** Publicación de eventos de negocio hacia los webhooks salientes (nunca lanza). */
+function eventPublisher(): WebhookPublisher {
+  return memoize('svc.eventPublisher', () => new WebhookPublisher(webhookDeps()));
 }
 
 function contentCollector(): ContentCollector {
@@ -620,6 +675,7 @@ export const useCases = {
           deliveries: repositories.deliveries(),
           queue: getCampaignQueue(),
           clock: systemClock,
+          events: eventPublisher(),
         }),
     ),
   tracking: () =>
@@ -633,6 +689,7 @@ export const useCases = {
           links: getTrackingLinks(),
           branding: repositories.tenants(),
           clock: systemClock,
+          events: eventPublisher(),
         }),
     ),
   ingestWebhook: () =>
@@ -656,6 +713,7 @@ export const useCases = {
           deliveries: repositories.deliveries(),
           preferences: repositories.preferences(),
           clock: systemClock,
+          publisher: eventPublisher(),
         }),
     ),
   requestPasswordReset: () =>
@@ -705,6 +763,11 @@ export const useCases = {
       'uc.aiAssist',
       () =>
         new AiAssistUseCase({
+          images: new BlockImageLoader({
+            documents: repositories.documents(),
+            storage: getObjectStorage(),
+            allowPrivateHosts: getServerEnv().SSRF_ALLOW_PRIVATE,
+          }),
           ai: aiService(),
           collector: contentCollector(),
           clock: systemClock,
@@ -761,6 +824,7 @@ export const useCases = {
           branding: repositories.tenants(),
           audit: repositories.audit(),
           clock: systemClock,
+          events: eventPublisher(),
         }),
     ),
   approvals: () =>
@@ -773,6 +837,57 @@ export const useCases = {
           campaigns: useCases.campaigns(),
           templates: repositories.templates(),
           audit: repositories.audit(),
+          clock: systemClock,
+        }),
+    ),
+
+  // Webhooks salientes
+  webhooks: () => memoize('uc.webhooks', () => new ManageWebhooksUseCase(webhookDeps())),
+  deliverWebhook: () =>
+    memoize(
+      'uc.deliverWebhook',
+      () =>
+        new DeliverWebhookUseCase({
+          endpoints: repositories.webhookEndpoints(),
+          deliveries: repositories.webhookDeliveries(),
+          sender: getWebhookSender(),
+          cipher: getSecretCipher(),
+          clock: systemClock,
+        }),
+    ),
+
+  // Privacidad (RGPD)
+  eraseContact: () =>
+    memoize(
+      'uc.eraseContact',
+      () =>
+        new EraseContactUseCase({
+          eraser: new PrismaPersonalDataEraser(getPrisma()),
+          audit: repositories.audit(),
+        }),
+    ),
+  retention: () =>
+    memoize(
+      'uc.retention',
+      () =>
+        new ApplyRetentionUseCase({
+          retention: new PrismaRetentionRepository(getPrisma()),
+          clock: systemClock,
+        }),
+    ),
+
+  // Administración de la plataforma
+  queues: () =>
+    memoize(
+      'uc.queues',
+      () => new ManageQueuesUseCase({ queues: getQueueAdmin(), audit: repositories.audit() }),
+    ),
+  platformAiUsage: () =>
+    memoize(
+      'uc.platformAiUsage',
+      () =>
+        new PlatformAiUsageUseCase({
+          usage: new PrismaPlatformAiUsageRepository(getPrisma()),
           clock: systemClock,
         }),
     ),

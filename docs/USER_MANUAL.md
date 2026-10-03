@@ -2,7 +2,7 @@
 
 Autor: **Ing. Heri Espinosa**
 
-Este manual explica cómo poner en marcha y usar MC Send Notify. Se amplía en cada fase del proyecto. Las funciones marcadas como _Próximamente_ todavía no están disponibles.
+Este manual explica cómo poner en marcha y usar MC Send Notify. Para publicarla en un servidor, el equipo técnico dispone de la [guía de despliegue](DEPLOYMENT.md) y de las [guías de proveedores de correo](providers/).
 
 ## 1. ¿Qué es MC Send Notify?
 
@@ -301,7 +301,8 @@ La baja es inmediata y se respeta aunque la campaña siga enviándose.
 | Campos personalizados   | Datos adicionales de los contactos: texto, número, fecha, sí/no o selección                            |
 | Etiquetas               | Marcas libres para clasificar contactos                                                                |
 | Temas de suscripción    | Tipos de comunicación que el contacto puede aceptar o rechazar, como "Resumen semanal"                 |
-| Claves de API           | Integraciones de otras aplicaciones con la API de contactos                                            |
+| Claves de API           | Integraciones de otras aplicaciones: contactos, novedades y eventos                                    |
+| Webhooks                | Avisar a otros sistemas cuando ocurre algo: campañas enviadas, rebotes, quejas, bajas...               |
 | Actividad               | Registro de quién hizo qué y cuándo                                                                    |
 
 ### Invitar a un miembro
@@ -350,8 +351,26 @@ Las credenciales se guardan cifradas y nunca se vuelven a mostrar. Al editar, de
 
 1. En **Claves de API**, pulsa **Nueva clave**, ponle un nombre y elige los permisos y la caducidad.
 2. **Copia la clave en ese momento.** Por seguridad, no se vuelve a mostrar.
-3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts` (contactos) o `/api/v1/changelog` (novedades, permiso «Publicar novedades»). El README tiene un ejemplo.
+3. Úsala desde tu aplicación con la cabecera `Authorization: Bearer <clave>` contra `/api/v1/contacts` (contactos), `/api/v1/changelog` (novedades, permiso «Publicar novedades») o `/api/v1/events` (eventos, permiso «Enviar eventos que disparan automatizaciones»). El README tiene ejemplos.
 4. Si la clave se expone, pulsa **Revocar**: deja de funcionar de inmediato.
+
+### Webhooks
+
+Solo propietarios y administradores. Un webhook avisa a otro sistema, por ejemplo el CRM de la aplicación, cada vez que ocurre algo en MC Send Notify.
+
+1. En **Webhooks**, pulsa **Nuevo destino**.
+2. Escribe la **URL del destino** (https) y, si quieres, una descripción.
+3. Marca los **eventos**:
+   - campaña enviada;
+   - aprobación solicitada;
+   - rebote permanente;
+   - queja de spam;
+   - baja de un contacto;
+   - automatización fallida.
+4. Pulsa **Crear** y **copia el secreto de firma**. Solo se muestra esta vez: el sistema receptor lo necesita para comprobar que los avisos vienen de MC Send Notify (cabecera `x-mcsn-signature`; el equipo técnico tiene los detalles en el ADR 0014).
+5. Pulsa **Probar** para enviar un evento de prueba y **Entregas** para ver las últimas entregas y su resultado.
+
+Si el destino no responde, se reintenta durante unas dos horas. Tras 20 fallos seguidos, el destino se **desactiva** solo. Corrige el receptor, pulsa **Editar** y vuelve a activarlo. **Rotar secreto** genera uno nuevo e invalida el anterior al momento.
 
 ### Inteligencia artificial
 
@@ -415,7 +434,8 @@ En el informe de una campaña enviada, pulsa **Generar resumen** para obtener la
 3. **Contenido:** fuentes (normalmente «Novedades del buzón»), instrucciones, tono e idioma. Con **No enviar si no hay novedades nuevas**, una semana sin novedades no genera correo.
 4. **Audiencia y remitente:** listas, segmentos, exclusiones, tema de suscripción y remitente.
 5. **Aprobación** (recomendada): aprobadores, plazo para decidir y qué hacer si nadie decide (cancelar o enviar).
-6. Guarda y **activa** la automatización. Con **Ejecutar ahora** puedes probarla sin esperar a la programación.
+6. Opcional, **Evento que la dispara**: un nombre como `release.published`. Además de la programación, la automatización se ejecuta cuando una aplicación envía ese evento a `/api/v1/events`. Los datos del evento (por ejemplo, la versión y sus notas) se usan como fuente para el borrador.
+7. Guarda y **activa** la automatización. Con **Ejecutar ahora** puedes probarla sin esperar a la programación.
 
 El **historial de ejecuciones** muestra cada ejecución:
 
@@ -438,12 +458,42 @@ Cuando una automatización prepara una campaña, los aprobadores reciben un corr
 
 Solo deciden los aprobadores designados, propietarios y administradores. Si la plantilla se edita mientras la revisas, la aprobación falla para que no se envíe algo distinto de lo revisado.
 
-## 11. Funciones próximas
+## 11. Más funciones
 
-| Función                                                   | Estado                |
-| --------------------------------------------------------- | --------------------- |
-| Instalación como aplicación (PWA)                         | Próximamente (Fase 5) |
-| Texto alternativo de imágenes con IA y webhooks salientes | Próximamente (Fase 5) |
+### Texto alternativo de imágenes con IA
+
+En el editor de plantillas, cada bloque de imagen tiene el botón **Generar con IA** junto al campo **Texto alternativo**. La IA mira la imagen (de la biblioteca o de una URL https pública) y propone una descripción breve, de 125 caracteres como máximo, en el idioma de la plantilla. Revísala antes de guardar: describe lo que importa a quien no puede ver la imagen. El botón solo aparece si la IA está configurada.
+
+### Eliminar los datos de un contacto (derecho al olvido)
+
+En la ficha del contacto, **Eliminar** (propietarios, administradores y editores):
+
+- borra el contacto con sus listas, etiquetas y suscripciones;
+- anonimiza su email en el historial de envíos (las estadísticas de las campañas se conservan sin datos personales);
+- mantiene su email en la lista de supresión si se había dado de baja o rebotado, para no volver a escribirle si alguien lo importa de nuevo.
+
+No se puede deshacer.
+
+La plataforma borra sola los datos de actividad antiguos:
+
+- aperturas y clics: a los 13 meses;
+- eventos crudos de los proveedores: a los 90 días;
+- registro de webhooks: a los 30 días.
+
+### Instalar la aplicación (PWA)
+
+En Chrome o Edge, el icono **Instalar** de la barra de direcciones (o el menú › **Instalar MC Send Notify**) la añade como aplicación del escritorio o del móvil. Por seguridad, los datos de tus aplicaciones no se guardan en el dispositivo:
+
+- sin conexión verás una página que lo explica;
+- dentro de la aplicación, un aviso indica que los cambios no se pueden guardar hasta que vuelva la red.
+
+### Administración de la plataforma
+
+Solo administradores de plataforma, desde el menú de usuario › **Administración**:
+
+- **Aplicaciones:** alta de aplicaciones (tenants).
+- **Colas:** trabajos pendientes, en curso y fallidos de cada cola. Un trabajo fallido se puede **Reintentar** o **Descartar**, y queda registrado.
+- **Uso de IA:** llamadas, tokens y coste del mes por aplicación, separando el coste cargado a la clave de la plataforma.
 
 ## 12. Resolución de problemas
 
@@ -476,5 +526,11 @@ Solo deciden los aprobadores designados, propietarios y administradores. Si la p
 | Una ejecución aparece como «Omitida (sin novedades)»                | No había novedades nuevas en el periodo; publícalas o desactiva esa opción                            |
 | «La plantilla cambió mientras la revisabas»                         | Recarga la aprobación y revisa la versión actual antes de aprobar                                     |
 | No recibo el correo de aprobación                                   | Comprueba que eres aprobador de la automatización y revisa spam; también aparece en **Aprobaciones**  |
+| Un webhook aparece como **Desactivado**                             | Falló 20 veces seguidas: corrige el receptor, edítalo y márcalo como activo                           |
+| Las entregas de un webhook muestran `BLOCKED`                       | La URL apunta a una red privada; usa una dirección pública                                            |
+| Un evento enviado a la API no genera nada                           | Ninguna automatización activa tiene ese evento; revisa el nombre exacto                               |
+| Un documento muestra «El antivirus detectó contenido malicioso»     | El archivo se eliminó por seguridad; súbelo de nuevo desde una copia limpia                           |
+| «No se pudo obtener la imagen» al generar el texto alternativo      | La URL debe ser https pública y apuntar a un JPEG, PNG, GIF o WebP de hasta 5 MB                      |
+| No aparece la opción de instalar la aplicación                      | Necesita HTTPS y un navegador compatible (Chrome, Edge); en Firefox no está disponible                |
 
 Si el problema persiste, contacta con el equipo de desarrollo. Indica el **código de seguimiento** que muestran los errores inesperados, o el `x-trace-id` de las cabeceras de la respuesta. Ambos permiten localizar la operación en los logs.

@@ -6,3 +6,6 @@ pnpm-lock.yaml
 desing
 src/infrastructure/persistence/prisma/generated
 prisma/migrations
+playwright-report
+test-results
+public/sw.js

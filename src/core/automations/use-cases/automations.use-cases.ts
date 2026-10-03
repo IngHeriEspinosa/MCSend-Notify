@@ -11,7 +11,7 @@ import type { SenderRepository } from '@/core/providers/ports';
 import { DomainError } from '@/core/shared/domain-error';
 import type { IdGenerator } from '@/core/shared/ports';
 import { actorUserId, type TenantContext } from '@/core/shared/tenant-context';
-import type { AutomationInput, AutomationRecord } from '../automation';
+import type { AutomationEvent, AutomationInput, AutomationRecord } from '../automation';
 import type {
   AutomationRepository,
   AutomationRunRepository,
@@ -131,6 +131,28 @@ export class ManageAutomationsUseCase {
       entityId: automationId,
     });
     return { idempotencyKey: key };
+  }
+
+  /**
+   * Evento de la API: encola una ejecución de cada automatización activa que lo escucha. Con `id`
+   * el disparo es idempotente (si el emisor reintenta, no se generan dos campañas).
+   */
+  async triggerEvent(context: TenantContext, input: AutomationEvent) {
+    assertCan(context, 'automation:trigger');
+    const automations = await this.deps.automations.findByEventKey(context, input.event);
+    const eventId = input.id ?? this.deps.ids.uuid();
+    for (const automation of automations) {
+      await this.deps.scheduler.enqueueRun(context, automation.id, `event-${eventId}`, 'event', {
+        key: input.event,
+        data: input.data ?? null,
+      });
+    }
+    await this.deps.audit.record(context, {
+      action: 'automation.event_received',
+      entityType: 'automation_event',
+      metadata: { event: input.event, triggered: automations.length },
+    });
+    return { triggered: automations.map((automation) => automation.name) };
   }
 
   /** Reprograma en la cola todas las automatizaciones activas (arranque del worker). */

@@ -6,6 +6,7 @@
  * - Opus 5.5 piensa siempre: no se envía `thinking`, ni `temperature`, ni `tool_choice`; la
  *   profundidad se regula con `output_config.effort` en los modelos que lo admiten.
  * - Instrucciones del sistema con `cache_control` (caché de prompts entre llamadas del tenant).
+ * - Imágenes (visión) como bloques `image` en base64 antes del texto de la petición.
  * - `stop_reason` se comprueba antes de leer el contenido: `refusal` y `max_tokens` son errores
  *   tipados que conservan el uso consumido para registrar su coste.
  */
@@ -60,6 +61,18 @@ export function mapAnthropicError(error: unknown): unknown {
   return error;
 }
 
+/** Texto simple o, con imágenes, bloques `image` (base64) seguidos del texto. */
+function userContent<T>(request: StructuredRequest<T>): string | Anthropic.ContentBlockParam[] {
+  if (!request.images?.length) return request.prompt;
+  return [
+    ...request.images.map((image): Anthropic.ImageBlockParam => ({
+      type: 'image',
+      source: { type: 'base64', media_type: image.mediaType, data: image.base64 },
+    })),
+    { type: 'text', text: request.prompt },
+  ];
+}
+
 export class AnthropicLanguageModel implements LanguageModel {
   constructor(
     private readonly client: Anthropic,
@@ -74,7 +87,7 @@ export class AnthropicLanguageModel implements LanguageModel {
         model: this.model,
         max_tokens: request.maxOutputTokens,
         system: [{ type: 'text', text: request.system, cache_control: { type: 'ephemeral' } }],
-        messages: [{ role: 'user', content: request.prompt }],
+        messages: [{ role: 'user', content: userContent(request) }],
         output_config: {
           format: { type: 'json_schema', schema: format.schema },
           ...(EFFORT_MODELS.test(this.model) ? { effort: request.effort } : {}),

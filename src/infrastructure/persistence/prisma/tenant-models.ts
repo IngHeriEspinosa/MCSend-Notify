@@ -35,6 +35,8 @@ export const TENANT_MODEL_RELATIONS = {
   Automation: ['tenant', 'runs'],
   AutomationRun: ['tenant', 'automation', 'approval'],
   ApprovalRequest: ['tenant', 'run'],
+  WebhookEndpoint: ['tenant', 'deliveries'],
+  WebhookDelivery: ['tenant', 'endpoint'],
 } as const satisfies Record<string, readonly string[]>;
 
 export type TenantModelName = keyof typeof TENANT_MODEL_RELATIONS;

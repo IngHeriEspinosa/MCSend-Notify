@@ -19,6 +19,7 @@ import {
   CachingEmailProviderGateway,
   DefaultEmailProviderFactory,
 } from './email-providers/provider-gateway';
+import { ClamdScanner } from './documents/clamd-scanner';
 import { GotenbergDocumentConverter } from './documents/gotenberg-converter';
 import { PopplerPdfToolkit } from './documents/poppler-pdf-toolkit';
 import { SharpImageProcessor } from './documents/sharp-image-processor';
@@ -29,6 +30,7 @@ import { httpHealthCheck, type HealthCheck } from './observability/readiness';
 import { WorkerHeartbeat, workerHeartbeatHealthCheck } from './observability/worker-heartbeat';
 import { createPrismaClient, type PrismaClient } from './persistence/prisma/client';
 import { TenantClientCache } from './persistence/prisma/tenant-scope.extension';
+import { BullQueueAdmin } from './queue/bull-queue-admin';
 import { createRedisConnection } from './queue/connection';
 import { AbsoluteAppLinks } from './notifications/app-links';
 import { SmtpSystemMailer } from './notifications/system-mailer';
@@ -40,6 +42,7 @@ import {
   BullDocumentQueue,
   BullProviderEventQueue,
   BullSystemMailQueue,
+  BullWebhookQueue,
 } from './queue/jobs';
 import { TrackingEmailInstrumenter } from './rendering/email-instrumenter';
 import { HtmlEmailCompiler } from './rendering/email-compiler';
@@ -47,6 +50,7 @@ import { RateLimiter, RATE_LIMITS } from './security/rate-limiter';
 import { RedisSendThrottle } from './security/send-throttle';
 import { HmacPublicAssetLinks } from './security/signed-asset-links';
 import { HmacTrackingLinks } from './security/tracking-links';
+import { SafeFetchWebhookSender } from './webhooks/outbound-webhook-sender';
 import { DefaultProviderWebhookParser } from './webhooks/provider-webhook-parser';
 import { S3ObjectStorage } from './storage/s3.object-storage';
 
@@ -66,6 +70,8 @@ interface ContainerState {
   providerEventQueue?: BullProviderEventQueue;
   systemMailQueue?: BullSystemMailQueue;
   automationScheduler?: BullAutomationScheduler;
+  webhookQueue?: BullWebhookQueue;
+  queueAdmin?: BullQueueAdmin;
   providerGateway?: CachingEmailProviderGateway;
   rateLimiters?: Map<keyof typeof RATE_LIMITS, RateLimiter>;
   memo?: Map<string, unknown>;
@@ -169,6 +175,16 @@ export function getDocumentConverter(): GotenbergDocumentConverter {
   return memoize(
     'documentConverter',
     () => new GotenbergDocumentConverter(getServerEnv().GOTENBERG_URL),
+  );
+}
+
+/** Antivirus si `CLAMAV_HOST` está configurado; si no, los documentos no se analizan. */
+export function getMalwareScanner(): ClamdScanner | undefined {
+  const env = getServerEnv();
+  if (!env.CLAMAV_HOST) return undefined;
+  return memoize(
+    'malwareScanner',
+    () => new ClamdScanner({ host: env.CLAMAV_HOST ?? '', port: env.CLAMAV_PORT }),
   );
 }
 
@@ -288,6 +304,25 @@ export function getLinkFinder(): LinkifyLinkFinder {
 export function getAutomationScheduler(): BullAutomationScheduler {
   state.automationScheduler ??= new BullAutomationScheduler(getRedis());
   return state.automationScheduler;
+}
+
+export function getWebhookQueue(): BullWebhookQueue {
+  state.webhookQueue ??= new BullWebhookQueue(getRedis());
+  return state.webhookQueue;
+}
+
+/** Envío firmado de webhooks salientes con protección SSRF. */
+export function getWebhookSender(): SafeFetchWebhookSender {
+  return memoize(
+    'webhookSender',
+    () => new SafeFetchWebhookSender({ allowPrivateHosts: getServerEnv().SSRF_ALLOW_PRIVATE }),
+  );
+}
+
+/** Panel de colas (/admin/queues). */
+export function getQueueAdmin(): BullQueueAdmin {
+  state.queueAdmin ??= new BullQueueAdmin(getRedis());
+  return state.queueAdmin;
 }
 
 export function getAppLinks(): AbsoluteAppLinks {

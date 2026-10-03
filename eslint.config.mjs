@@ -36,6 +36,11 @@ export default defineConfig([
   globalIgnores([
     '.next/**',
     'dist/**',
+    // Service worker generado por scripts/build-sw.mjs (fuente: src/sw/sw.ts).
+    'public/sw.js',
+    // Informes generados por Playwright.
+    'playwright-report/**',
+    'test-results/**',
     'coverage/**',
     'node_modules/**',
     'next-env.d.ts',

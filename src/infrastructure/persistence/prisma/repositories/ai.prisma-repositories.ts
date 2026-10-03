@@ -7,9 +7,10 @@ import type {
   NewAiUsage,
   StoredAiSettings,
 } from '@/core/ai/ports';
+import type { PlatformAiUsageRepository, TenantAiUsageRow } from '@/core/platform/platform-admin';
 import type { ProviderStatus } from '@/core/providers/provider-config';
 import type { TenantContext } from '@/core/shared/tenant-context';
-import type { Prisma } from '../generated/client';
+import type { Prisma, PrismaClient } from '../generated/client';
 import type { TenantClientCache } from '../tenant-scope.extension';
 
 const SETTINGS_SELECT = {
@@ -122,5 +123,52 @@ export class PrismaAiUsageRepository implements AiUsageRepository {
       costMicros: byPurpose.reduce((total, group) => total + group.costMicros, 0),
       byPurpose,
     };
+  }
+}
+
+/** Uso de IA de todos los tenants (panel de plataforma; consulta sin ámbito de tenant). */
+export class PrismaPlatformAiUsageRepository implements PlatformAiUsageRepository {
+  constructor(private readonly prisma: PrismaClient) {}
+
+  async byTenant(from: Date, to: Date): Promise<TenantAiUsageRow[]> {
+    const where = { createdAt: { gte: from, lt: to } };
+    const [tenants, usage, errors] = await Promise.all([
+      this.prisma.tenant.findMany({
+        select: {
+          id: true,
+          slug: true,
+          name: true,
+          aiSettings: { select: { source: true, monthlyBudgetUsd: true } },
+        },
+      }),
+      this.prisma.aiUsage.groupBy({
+        by: ['tenantId'],
+        where,
+        _count: { _all: true },
+        _sum: { costMicros: true, inputTokens: true, outputTokens: true },
+      }),
+      this.prisma.aiUsage.groupBy({
+        by: ['tenantId'],
+        where: { ...where, status: { not: 'OK' } },
+        _count: { _all: true },
+      }),
+    ]);
+    const usageByTenant = new Map(usage.map((row) => [row.tenantId, row]));
+    const errorsByTenant = new Map(errors.map((row) => [row.tenantId, row._count._all]));
+    return tenants.map((tenant) => {
+      const row = usageByTenant.get(tenant.id);
+      return {
+        tenantId: tenant.id,
+        tenantSlug: tenant.slug,
+        tenantName: tenant.name,
+        source: tenant.aiSettings?.source ?? null,
+        monthlyBudgetUsd: tenant.aiSettings?.monthlyBudgetUsd ?? null,
+        calls: row?._count._all ?? 0,
+        errors: errorsByTenant.get(tenant.id) ?? 0,
+        inputTokens: row?._sum.inputTokens ?? 0,
+        outputTokens: row?._sum.outputTokens ?? 0,
+        costMicros: row?._sum.costMicros ?? 0,
+      };
+    });
   }
 }

@@ -10,6 +10,8 @@ import { notFound } from 'next/navigation';
 import { hasLocale, NextIntlClientProvider } from 'next-intl';
 import { getTranslations, setRequestLocale } from 'next-intl/server';
 import { NotificationsProvider } from '@/common/hooks/notifications';
+import { ServiceWorkerRegistrar } from '@/components/atoms/ServiceWorkerRegistrar';
+import { OfflineBanner } from '@/components/molecules/OfflineBanner';
 import { routing } from '@/common/i18n/routing';
 import { AppThemeProvider } from '@/common/theme/app-theme-provider';
 import '@/common/global/globals.css';
@@ -61,6 +63,8 @@ export default async function LocaleLayout({ children, params }: LayoutProps<'/[
         <AppThemeProvider nonce={nonce}>
           <NextIntlClientProvider>
             <NotificationsProvider>{children}</NotificationsProvider>
+            <OfflineBanner />
+            <ServiceWorkerRegistrar />
           </NextIntlClientProvider>
         </AppThemeProvider>
       </body>

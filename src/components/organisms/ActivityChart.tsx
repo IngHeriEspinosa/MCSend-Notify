@@ -2,7 +2,8 @@
 
 /**
  * Actividad de envío por día (enviados, aperturas y clics). La gráfica va acompañada de una tabla
- * con los mismos datos para lectores de pantalla (WCAG 1.1.1).
+ * con los mismos datos para lectores de pantalla (WCAG 1.1.1). La gráfica sigue expuesta (no
+ * `aria-hidden`): MUI X la hace navegable con teclado y un contenedor oculto no puede tener foco.
  */
 import Typography from '@mui/material/Typography';
 import { BarChart } from '@mui/x-charts/BarChart';
@@ -28,7 +29,7 @@ export function ActivityChart({ data }: { data: DailyActivity[] }) {
 
   return (
     <figure className="m-0 flex flex-col gap-2">
-      <div aria-hidden="true">
+      <div>
         <BarChart
           height={280}
           xAxis={[{ scaleType: 'band', data: labels }]}

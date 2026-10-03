@@ -4,6 +4,7 @@
  */
 import { beforeEach, describe, expect, it } from 'vitest';
 import {
+  FakeImageLoader,
   FakeLanguageModelFactory,
   FakeMemberDirectory,
   FakeSourceFetcher,
@@ -22,6 +23,7 @@ import { campaignTestDeps, type CampaignTestDeps } from '@tests/fakes/campaign-d
 import { InMemoryBrandingRepository, InMemoryDocumentRepository } from '@tests/fakes/content.fakes';
 import { RecordingAuditLogger } from '@tests/fakes/identity.fakes';
 import { ownerContext, SENDER_ID, systemCtx, uuid } from '@tests/fakes/sending.fakes';
+import { RecordingEventPublisher } from '@tests/fakes/webhook.fakes';
 import { ContentCollector } from '@/core/ai/sources';
 import { AiAssistUseCase } from '@/core/ai/use-cases/ai-assist.use-cases';
 import { AiService } from '@/core/ai/use-cases/ai-service';
@@ -55,6 +57,7 @@ let approvals: InMemoryApprovalRepository;
 let scheduler: RecordingAutomationScheduler;
 let mail: RecordingMailQueue;
 let members: FakeMemberDirectory;
+let events: RecordingEventPublisher;
 
 function campaigns() {
   return new ManageCampaignsUseCase(campaignDeps);
@@ -77,6 +80,7 @@ function runner() {
     clock,
   });
   const assist = new AiAssistUseCase({
+    images: new FakeImageLoader(),
     ai,
     collector,
     clock,
@@ -107,6 +111,7 @@ function runner() {
     branding: new InMemoryBrandingRepository(),
     audit: new RecordingAuditLogger(),
     clock,
+    events,
   });
 }
 
@@ -136,6 +141,7 @@ function manageAutomations() {
 function input(overrides: Partial<AutomationInput['definition']> = {}): AutomationInput {
   return {
     name: 'Resumen semanal',
+    eventKey: null,
     schedule: { frequency: 'weekly', weekday: 1, hour: 9, minute: 0 },
     timezone: 'America/Santo_Domingo',
     definition: {
@@ -176,6 +182,7 @@ beforeEach(() => {
   approvals = new InMemoryApprovalRepository();
   scheduler = new RecordingAutomationScheduler();
   mail = new RecordingMailQueue();
+  events = new RecordingEventPublisher();
   members = new FakeMemberDirectory([
     {
       userId: APPROVER,
@@ -485,5 +492,97 @@ describe('aprobaciones', () => {
     ).rejects.toMatchObject({
       code: 'FORBIDDEN',
     });
+  });
+});
+
+describe('eventos de la API y webhooks salientes', () => {
+  it('un evento dispara solo las automatizaciones activas que lo escuchan, con clave idempotente', async () => {
+    const listening = await manageAutomations().create(ownerContext, {
+      ...input(),
+      name: 'Al publicar versión',
+      eventKey: 'release.published',
+    });
+    const inactive = await manageAutomations().create(ownerContext, {
+      ...input(),
+      name: 'Inactiva',
+      eventKey: 'release.published',
+    });
+    await automation();
+    await manageAutomations().setEnabled(ownerContext, listening.id, true);
+    expect(inactive.enabled).toBe(false);
+
+    const data = { version: '2.4.0', notes: 'Exportación a PDF' };
+    const result = await manageAutomations().triggerEvent(as('api', 'EDITOR'), {
+      event: 'release.published',
+      id: 'rel-2.4.0',
+      data,
+    });
+
+    expect(result.triggered).toEqual(['Al publicar versión']);
+    expect(scheduler.runs).toEqual([
+      {
+        automationId: listening.id,
+        key: 'event-rel-2.4.0',
+        trigger: 'event',
+        event: { key: 'release.published', data },
+      },
+    ]);
+    await expect(
+      manageAutomations().triggerEvent(as('v', 'VIEWER'), { event: 'release.published' }),
+    ).rejects.toMatchObject({ code: 'FORBIDDEN' });
+  });
+
+  it('los datos del evento llegan a la IA como fuente y se avisa de la aprobación pendiente', async () => {
+    const created = await automation({ skipWhenNoNews: false });
+    await manageAutomations().setEnabled(ownerContext, created.id, true);
+    factory.respond(DRAFT);
+
+    const run = await runner().execute(systemCtx, created.id, 'event-rel-1', {
+      trigger: 'event',
+      finalAttempt: true,
+      event: { key: 'release.published', data: { version: '2.4.0' } },
+    });
+
+    expect(run).toMatchObject({ status: 'AWAITING_APPROVAL', trigger: 'event' });
+    const prompt = factory.requests[0]?.request.prompt ?? '';
+    expect(prompt).toContain('Evento release.published');
+    expect(prompt).toContain('2.4.0');
+    const [approval] = [...approvals.approvals.values()];
+    expect(events.published).toEqual([
+      {
+        type: 'campaign.approval_requested',
+        data: expect.objectContaining({
+          campaignId: run?.campaignId,
+          approvalId: approval?.id,
+          automationId: created.id,
+        }),
+      },
+    ]);
+  });
+
+  it('un evento no ejecuta una automatización desactivada', async () => {
+    const created = await automation();
+    const run = await runner().execute(systemCtx, created.id, 'event-x', {
+      trigger: 'event',
+      finalAttempt: true,
+      event: { key: 'release.published', data: null },
+    });
+    expect(run).toBeNull();
+    expect(factory.requests).toEqual([]);
+  });
+
+  it('un fallo definitivo publica automation.run_failed', async () => {
+    const created = await automation();
+    factory.fail(new AiModelError('UNAVAILABLE', 'caída'));
+    await execute(created.id, 'schedule-err', true);
+    expect(events.published).toEqual([
+      {
+        type: 'automation.run_failed',
+        data: expect.objectContaining({
+          automationId: created.id,
+          automationName: 'Resumen semanal',
+        }),
+      },
+    ]);
   });
 });

@@ -108,3 +108,13 @@ export interface PublicAssetLinks {
   documentDownload(tenantId: string, documentId: string): string;
   tenantLogo(tenantId: string, logoKey: string): string;
 }
+
+export type ScanResult = { infected: false } | { infected: true; signature: string };
+
+/**
+ * Antivirus opcional (ClamAV). Lanza DocumentProcessingError `SCAN_UNAVAILABLE` si no puede
+ * analizar el archivo, para que la cola reintente.
+ */
+export interface MalwareScanner {
+  scan(bytes: Uint8Array): Promise<ScanResult>;
+}

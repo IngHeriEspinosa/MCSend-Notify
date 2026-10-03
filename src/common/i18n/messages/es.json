@@ -122,7 +122,9 @@
       "TEMPLATE_CHANGED": "La plantilla cambió mientras la revisabas. Recarga la página y revísala de nuevo.",
       "NO_RECIPIENTS": "La audiencia está vacía: elige al menos una lista o un segmento.",
       "BLOCKING_ISSUES": "La campaña tiene errores que impiden el envío.",
-      "UNEXPECTED": "Error inesperado durante la ejecución."
+      "UNEXPECTED": "Error inesperado durante la ejecución.",
+      "WEBHOOK_LIMIT": "Se alcanzó el máximo de 10 destinos de webhook.",
+      "IMAGE_UNAVAILABLE": "No se pudo obtener la imagen: comprueba que la URL sea https pública y apunte a un JPEG, PNG, GIF o WebP de hasta 5 MB, o que el documento esté listo."
     }
   },
   "Auth": {
@@ -192,6 +194,7 @@
     "tags": "Etiquetas",
     "topics": "Temas de suscripción",
     "apiKeys": "Claves de API",
+    "webhooks": "Webhooks",
     "activity": "Actividad",
     "content": "Contenido",
     "templates": "Plantillas",
@@ -221,7 +224,54 @@
     "defaultLocale": "Idioma por defecto",
     "timezone": "Zona horaria",
     "status": "Estado",
-    "created": "Aplicación creada"
+    "created": "Aplicación creada",
+    "nav": {
+      "label": "Administración de la plataforma",
+      "tenants": "Aplicaciones",
+      "queues": "Colas",
+      "aiUsage": "Uso de IA"
+    },
+    "queuesTitle": "Colas de trabajo",
+    "queuesSubtitle": "Estado de las colas del worker y trabajos que agotaron sus reintentos.",
+    "refresh": "Actualizar",
+    "queue": "Cola",
+    "counters": {
+      "waiting": "En espera",
+      "active": "En curso",
+      "delayed": "Diferidos",
+      "failed": "Fallidos",
+      "completed": "Completados"
+    },
+    "paused": "En pausa",
+    "viewFailed": "Ver fallidos",
+    "failedTitle": "Trabajos fallidos de {queue}",
+    "noFailed": "No hay trabajos fallidos.",
+    "job": "Trabajo",
+    "tenant": "Tenant",
+    "reason": "Motivo",
+    "attempts": "Intentos",
+    "failedAt": "Falló",
+    "retry": "Reintentar",
+    "discard": "Descartar",
+    "retried": "Trabajo devuelto a la cola.",
+    "removed": "Trabajo descartado.",
+    "aiUsageTitle": "Uso de IA por aplicación",
+    "aiUsageSubtitle": "Llamadas, tokens y coste del mes (UTC). El coste de la plataforma es el de los tenants que usan su clave.",
+    "month": "Mes",
+    "show": "Mostrar",
+    "platformCost": "Coste con la clave de la plataforma",
+    "totalCost": "Coste total",
+    "aiSource": "Proveedor de IA",
+    "aiSources": {
+      "PLATFORM": "Plataforma",
+      "OWN": "Clave propia",
+      "NONE": "Sin configurar"
+    },
+    "calls": "Llamadas",
+    "errors": "Errores",
+    "tokens": "Tokens",
+    "cost": "Coste",
+    "budget": "Presupuesto mensual"
   },
   "Dashboard": {
     "title": "Resumen de {tenant}",
@@ -290,7 +340,7 @@
     "noConsent": "Sin registro de consentimiento",
     "created": "Contacto creado",
     "deleteTitle": "¿Eliminar este contacto?",
-    "deleteBody": "Se borrarán sus datos personales de forma permanente (derecho al olvido).",
+    "deleteBody": "Se borrarán sus datos personales de forma permanente (derecho al olvido): el contacto, sus listas y etiquetas, y su email en el historial de envíos. Las estadísticas de las campañas se conservan de forma anónima. Si estaba dado de baja, su email se mantiene en la lista de supresión para no volver a escribirle.",
     "booleanUnset": "Sin valor"
   },
   "Import": {
@@ -450,7 +500,8 @@
     "scopeNames": {
       "contacts:read": "Leer contactos",
       "contacts:write": "Crear y actualizar contactos",
-      "changelog:write": "Publicar novedades (changelog)"
+      "changelog:write": "Publicar novedades (changelog)",
+      "events:write": "Enviar eventos que disparan automatizaciones"
     },
     "fieldsTitle": "Campos personalizados",
     "fieldsSubtitle": "Datos adicionales de tus contactos para segmentar y personalizar.",
@@ -602,6 +653,8 @@
     "imageUrlHint": "Debe empezar por https://.",
     "alt": "Texto alternativo",
     "altHint": "Describe la imagen para quien no puede verla. Obligatorio.",
+    "altGenerate": "Generar con IA",
+    "altGenerating": "Generando…",
     "imageLink": "Enlace al pulsar (opcional)",
     "width": "Ancho (px)",
     "dividerHint": "Línea horizontal de separación.",
@@ -677,7 +730,9 @@
       "RENDER_FAILED": "No se pudo generar la miniatura.",
       "TOOLS_UNAVAILABLE": "Faltan herramientas de conversión en el servidor (poppler). Avisa al equipo técnico.",
       "INVALID_FILE": "El archivo está dañado o protegido con contraseña.",
-      "PROCESSING_ERROR": "Error inesperado al procesar el documento."
+      "PROCESSING_ERROR": "Error inesperado al procesar el documento.",
+      "MALWARE_DETECTED": "El antivirus detectó contenido malicioso. El archivo se eliminó y no se usará en ningún correo.",
+      "SCAN_UNAVAILABLE": "No se pudo analizar el archivo con el antivirus. Inténtalo de nuevo más tarde o avisa al equipo técnico."
     },
     "downloadOriginal": "Descargar original",
     "openPdf": "Abrir PDF",
@@ -1155,6 +1210,7 @@
       "tone": "Ajustes de tono",
       "segment": "Segmentos",
       "results_summary": "Resúmenes de resultados",
+      "alt_text": "Texto alternativo",
       "connection_test": "Pruebas de conexión"
     },
     "noUsage": "Todavía no hay uso este mes.",
@@ -1207,6 +1263,8 @@
     "time": "Hora",
     "timezone": "Zona horaria",
     "scheduleSummary": "{schedule} ({timezone}).",
+    "eventKey": "Evento que la dispara (opcional)",
+    "eventKeyHint": "Además de la programación, se ejecuta cuando una aplicación envía este evento a /api/v1/events (p. ej. release.published). Minúsculas, números, punto, guion o guion bajo.",
     "schedules": {
       "daily": "Cada día a las {time}",
       "weekly": "Cada {weekday} a las {time}",
@@ -1247,7 +1305,8 @@
     "trigger": "Origen",
     "triggers": {
       "schedule": "Programada",
-      "manual": "Manual"
+      "manual": "Manual",
+      "event": "Evento de la API"
     },
     "result": "Resultado",
     "runStatuses": {
@@ -1300,5 +1359,57 @@
     "approved": "Campaña aprobada: el envío ha comenzado.",
     "rejected": "Campaña rechazada: volvió a borrador.",
     "removedLinks": "{count, plural, one {La IA propuso # enlace que no estaba en las fuentes y se eliminó. Lee con atención el texto que lo acompañaba (posible inyección) antes de aprobar:} other {La IA propuso # enlaces que no estaban en las fuentes y se eliminaron. Lee con atención el texto que los acompañaba (posible inyección) antes de aprobar:}}"
+  },
+  "Pwa": {
+    "offlineBanner": "Sin conexión. Los cambios no se pueden guardar hasta que vuelva la red.",
+    "offlineTitle": "Sin conexión",
+    "offlineBody": "No hay conexión a internet. Por seguridad, MC Send Notify no guarda los datos de tus aplicaciones en este dispositivo. Vuelve a intentarlo cuando tengas red.",
+    "retry": "Reintentar"
+  },
+  "Webhooks": {
+    "title": "Webhooks",
+    "subtitle": "Avisa a otros sistemas cuando ocurre algo en este tenant: campañas enviadas, rebotes, quejas, bajas y más.",
+    "new": "Nuevo destino",
+    "editTitle": "Editar destino",
+    "empty": "Todavía no hay destinos de webhook.",
+    "url": "URL del destino",
+    "urlHint": "HTTPS recomendado. No se admiten direcciones privadas ni redirecciones.",
+    "events": "Eventos",
+    "eventsRequired": "Elige al menos un evento.",
+    "event": "Evento",
+    "status": "Estado",
+    "enabled": "Activo",
+    "disabled": "Desactivado",
+    "failures": "{count, plural, one {# fallo seguido} other {# fallos seguidos}} (se desactiva a los 20)",
+    "lastDelivery": "Último envío",
+    "test": "Probar",
+    "testQueued": "Evento de prueba en cola.",
+    "deliveries": "Entregas",
+    "deliveriesTitle": "Últimas entregas",
+    "noDeliveries": "Sin entregas todavía.",
+    "attempts": "Intentos",
+    "response": "Respuesta",
+    "rotate": "Rotar secreto",
+    "rotateTitle": "¿Rotar el secreto de firma?",
+    "rotateBody": "El secreto actual deja de ser válido en cuanto se genera el nuevo. Actualiza el receptor enseguida.",
+    "deleteTitle": "¿Eliminar el destino?",
+    "deleteBody": "Se eliminan también su registro de entregas y los envíos pendientes.",
+    "secret": "Secreto de firma",
+    "secretTitle": "Secreto de firma",
+    "secretBody": "Cópialo ahora: no se volverá a mostrar. Guárdalo en el receptor para verificar las firmas.",
+    "signatureHelp": "Cada evento se envía por POST en JSON. La cabecera {header} contiene v1= seguido del HMAC-SHA256 (hex) de «timestamp.cuerpo» con el secreto del destino, y x-mcsn-timestamp el timestamp en segundos. Rechaza firmas que no coincidan o con más de 5 minutos; usa el id del evento para descartar duplicados.",
+    "eventNames": {
+      "campaignSent": "Campaña enviada",
+      "campaignApprovalRequested": "Aprobación solicitada",
+      "deliveryBounced": "Rebote permanente",
+      "deliveryComplained": "Queja de spam",
+      "contactUnsubscribed": "Baja de un contacto",
+      "automationRunFailed": "Automatización fallida"
+    },
+    "deliveryStatuses": {
+      "PENDING": "Reintentando",
+      "SUCCEEDED": "Entregado",
+      "FAILED": "Fallido"
+    }
   }
 }

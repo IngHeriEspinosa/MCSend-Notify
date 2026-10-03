@@ -37,6 +37,8 @@ export const PERMISSIONS = [
   'changelog:write',
   'automation:read',
   'automation:write',
+  'automation:trigger',
+  'webhook:manage',
 ] as const;
 
 export type Permission = (typeof PERMISSIONS)[number];
@@ -61,6 +63,7 @@ const EDITOR_PERMISSIONS: readonly Permission[] = [
   'changelog:write',
   'automation:read',
   'automation:write',
+  'automation:trigger',
 ];
 
 const VIEWER_PERMISSIONS: readonly Permission[] = [
@@ -85,6 +88,7 @@ const SCOPE_PERMISSIONS: Record<ApiScope, readonly Permission[]> = {
   'contacts:read': ['contact:read'],
   'contacts:write': ['contact:read', 'contact:write', 'list:write'],
   'changelog:write': ['changelog:read', 'changelog:write'],
+  'events:write': ['automation:read', 'automation:trigger'],
 };
 
 export function can(actor: Actor, permission: Permission): boolean {

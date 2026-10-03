@@ -5,6 +5,7 @@
 import { z } from 'zod';
 import {
   automationDefinitionSchema,
+  AUTOMATION_TRIGGERS,
   automationScheduleSchema,
   ON_TIMEOUT_ACTIONS,
   type ApprovalRecord,
@@ -13,6 +14,7 @@ import {
   type AutomationRunRecord,
   type AutomationRunStatus,
   type AutomationSummary,
+  type AutomationTrigger,
 } from '@/core/automations/automation';
 import type {
   ApprovalRepository,
@@ -36,6 +38,7 @@ const AUTOMATION_SELECT = {
   schedule: true,
   timezone: true,
   definition: true,
+  eventKey: true,
   createdById: true,
   lastRunAt: true,
   createdAt: true,
@@ -55,6 +58,7 @@ function toAutomation(row: AutomationRow): AutomationRecord {
 function writeData(input: AutomationWrite) {
   return {
     name: input.name,
+    eventKey: input.eventKey,
     schedule: input.schedule,
     timezone: input.timezone,
     definition: input.definition,
@@ -136,6 +140,15 @@ export class PrismaAutomationRepository implements AutomationRepository {
     return count > 0;
   }
 
+  async findByEventKey(context: TenantContext, eventKey: string): Promise<AutomationRecord[]> {
+    const rows = await this.clients.forTenant(context.tenantId).automation.findMany({
+      where: { eventKey, enabled: true },
+      select: AUTOMATION_SELECT,
+      orderBy: { createdAt: 'asc' },
+    });
+    return rows.map(toAutomation);
+  }
+
   async listEnabled(): Promise<AutomationRef[]> {
     const rows = await this.prisma.automation.findMany({
       where: { enabled: true, tenant: { status: 'ACTIVE' } },
@@ -196,7 +209,7 @@ function toRun(row: RunRow): AutomationRunRecord {
   const removed = stringArraySchema.safeParse(row.removedLinks);
   return {
     ...row,
-    trigger: row.trigger === 'manual' ? 'manual' : 'schedule',
+    trigger: AUTOMATION_TRIGGERS.find((trigger) => trigger === row.trigger) ?? 'schedule',
     sources: sources.success ? sources.data : [],
     removedLinks: removed.success ? removed.data : [],
   };
@@ -221,7 +234,7 @@ export class PrismaAutomationRunRepository implements AutomationRunRepository {
 
   async start(
     context: TenantContext,
-    input: { automationId: string; idempotencyKey: string; trigger: 'schedule' | 'manual' },
+    input: { automationId: string; idempotencyKey: string; trigger: AutomationTrigger },
   ) {
     const scoped = this.clients.forTenant(context.tenantId);
     try {

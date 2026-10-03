@@ -36,6 +36,7 @@ import type {
   DocumentRepository,
   FileInspector,
   ImageProcessor,
+  MalwareScanner,
   PdfToolkit,
 } from '../ports';
 
@@ -51,6 +52,8 @@ export interface DocumentUseCaseDeps {
   audit: AuditLogger;
   clock: Clock;
   ids: IdGenerator;
+  /** Antivirus (solo si `CLAMAV_HOST` está configurado). */
+  scanner?: MalwareScanner | undefined;
 }
 
 function documentPrefix(tenantId: string, documentId: string): string {
@@ -103,6 +106,13 @@ export class UploadDocumentUseCase {
   }
 }
 
+class MalwareDetectedError extends Error {
+  constructor(readonly signature: string) {
+    super('Malware detectado');
+    this.name = 'MalwareDetectedError';
+  }
+}
+
 function toErrorCode(error: unknown): DocumentErrorCode {
   return error instanceof DocumentProcessingError ? error.code : 'PROCESSING_ERROR';
 }
@@ -142,6 +152,10 @@ export class ProcessDocumentUseCase {
         metadata: { kind: record.kind, pageCount: patch.pageCount },
       });
     } catch (error) {
+      if (error instanceof MalwareDetectedError) {
+        await this.quarantine(context, record, error.signature);
+        return;
+      }
       if (!options.finalAttempt) throw error;
       await this.deps.documents.update(context, documentId, {
         status: 'FAILED',
@@ -152,9 +166,29 @@ export class ProcessDocumentUseCase {
     }
   }
 
+  /** Malware: se borra el original (nunca se sirve ni se procesa) y el documento queda FAILED. */
+  private async quarantine(context: TenantContext, record: DocumentRecord, signature: string) {
+    await this.deps.storage.delete(record.storageKey);
+    await this.deps.documents.update(context, record.id, {
+      status: 'FAILED',
+      error: 'MALWARE_DETECTED',
+      processedAt: this.deps.clock.now(),
+    });
+    await this.deps.audit.record(context, {
+      action: 'document.malware_detected',
+      entityType: 'document',
+      entityId: record.id,
+      metadata: { signature: signature.slice(0, 200) },
+    });
+  }
+
   private async process(context: TenantContext, record: DocumentRecord) {
     const prefix = documentPrefix(context.tenantId, record.id);
     const original = await this.deps.storage.getBytes(record.storageKey);
+    if (this.deps.scanner) {
+      const scan = await this.deps.scanner.scan(original);
+      if (scan.infected) throw new MalwareDetectedError(scan.signature);
+    }
 
     if (record.kind === 'IMAGE') {
       const thumbnail = await this.deps.images.thumbnail(original, THUMBNAIL_WIDTH);

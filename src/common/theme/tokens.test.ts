@@ -24,6 +24,17 @@ describe.each(schemes)('tokens del esquema %s (WCAG AA)', (_name, scheme) => {
     expect(meetsWcagAA(scheme.secondary.contrastText, scheme.secondary.main)).toBe(true);
   });
 
+  it('el texto de los avisos informativos cumple AA sobre su color', () => {
+    expect(meetsWcagAA(scheme.info.contrastText, scheme.info.main)).toBe(true);
+  });
+
+  it('los colores de estado cumplen AA como fondo (con su texto) y como texto sobre el papel', () => {
+    for (const status of [scheme.success, scheme.warning, scheme.error]) {
+      expect(meetsWcagAA(status.contrastText, status.main)).toBe(true);
+      expect(meetsWcagAA(status.main, scheme.background.paper)).toBe(true);
+    }
+  });
+
   it('la variante de texto del Cielo cumple AA sobre el papel', () => {
     expect(meetsWcagAA(scheme.skyText, scheme.background.paper)).toBe(true);
   });

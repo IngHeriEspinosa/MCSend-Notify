@@ -87,7 +87,19 @@ export class OpenAiCompatibleLanguageModel implements LanguageModel {
       model: this.model,
       messages: [
         { role: 'system', content: request.system },
-        { role: 'user', content: request.prompt },
+        {
+          role: 'user',
+          // Con imágenes, contenido multimodal (data URL); sin ellas, texto simple (más compatible).
+          content: request.images?.length
+            ? [
+                ...request.images.map((image) => ({
+                  type: 'image_url',
+                  image_url: { url: `data:${image.mediaType};base64,${image.base64}` },
+                })),
+                { type: 'text', text: request.prompt },
+              ]
+            : request.prompt,
+        },
       ],
       response_format: {
         type: 'json_schema',

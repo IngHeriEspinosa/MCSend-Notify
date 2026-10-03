@@ -26,8 +26,12 @@ export const updateContactAction = tenantAction(
   },
 );
 
-export const deleteContactAction = tenantAction(z.object({ id: z.uuid() }), ({ id }, context) =>
-  useCases.deleteContact().execute(context, id),
+/** Derecho de supresión (RGPD): borra el contacto y anonimiza su historial de envíos. */
+export const deleteContactAction = tenantAction(
+  z.object({ id: z.uuid() }),
+  async ({ id }, context) => {
+    await useCases.eraseContact().execute(context, id);
+  },
 );
 
 export const addContactsToListAction = tenantAction(listMembershipSchema, (input, context) =>

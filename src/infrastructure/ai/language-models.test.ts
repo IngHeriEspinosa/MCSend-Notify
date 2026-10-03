@@ -243,3 +243,46 @@ describe('OpenAiCompatibleLanguageModel', () => {
     });
   });
 });
+
+describe('imágenes (visión)', () => {
+  const withImage = { ...request, images: [{ mediaType: 'image/jpeg' as const, base64: 'AAAA' }] };
+
+  it('Claude recibe bloques image en base64 antes del texto', async () => {
+    const { calls, model } = anthropicWith({ status: 200, body: message({}) });
+    await model('claude-opus-5-5').generateObject(withImage);
+    expect(calls[0]?.messages).toEqual([
+      {
+        role: 'user',
+        content: [
+          { type: 'image', source: { type: 'base64', media_type: 'image/jpeg', data: 'AAAA' } },
+          { type: 'text', text: 'Redacta' },
+        ],
+      },
+    ]);
+  });
+
+  it('OpenAI-compatible recibe la imagen como data URL', async () => {
+    const { calls, fetcher } = openAiWith(200, {
+      choices: [{ finish_reason: 'stop', message: { content: '{"subject":"x","level":1}' } }],
+    });
+    const model = new OpenAiCompatibleLanguageModel({
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: 'sk-test',
+      model: 'gpt-5',
+      flavor: 'openai',
+      allowPrivate: false,
+      fetcher,
+    });
+    await model.generateObject(withImage);
+    expect(calls[0]?.body.messages).toEqual([
+      { role: 'system', content: 'Reglas' },
+      {
+        role: 'user',
+        content: [
+          { type: 'image_url', image_url: { url: 'data:image/jpeg;base64,AAAA' } },
+          { type: 'text', text: 'Redacta' },
+        ],
+      },
+    ]);
+  });
+});

@@ -22,6 +22,8 @@ x-app-environment: &app-environment
   S3_SECRET_ACCESS_KEY: ${S3_SECRET_ACCESS_KEY}
   S3_FORCE_PATH_STYLE: 'true'
   GOTENBERG_URL: http://gotenberg:3000
+  # Antivirus: con CLAMAV_HOST definido en .env (cualquier valor) se usa el servicio `clamav`.
+  CLAMAV_HOST: ${CLAMAV_HOST:+clamav}
   AUTH_SECRET: ${AUTH_SECRET}
   AUTH_TRUST_HOST: 'true'
   AUTH_CREDENTIALS_ENABLED: ${AUTH_CREDENTIALS_ENABLED:-true}
@@ -111,6 +113,21 @@ services:
       timeout: 5s
       retries: 10
 
+  # Antivirus opcional para los documentos subidos: `--profile security` y CLAMAV_HOST en .env.
+  # Descarga las firmas al arrancar (freshclam) y las actualiza periódicamente.
+  clamav:
+    image: clamav/clamav:1.4
+    profiles: ['security']
+    restart: unless-stopped
+    volumes:
+      - clamav-data:/var/lib/clamav
+    healthcheck:
+      test: ['CMD-SHELL', 'clamdcheck.sh']
+      interval: 30s
+      timeout: 10s
+      retries: 10
+      start_period: 300s
+
   migrate:
     build:
       context: .
@@ -119,6 +136,28 @@ services:
       DATABASE_URL: postgresql://${POSTGRES_USER}:${POSTGRES_PASSWORD}@postgres:5432/${POSTGRES_DB}
     depends_on:
       postgres:
+        condition: service_healthy
+    restart: 'no'
+
+  # Datos iniciales (super-administrador y tenants de ejemplo). Idempotente; solo bajo demanda:
+  #   docker compose --profile seed run --rm seed
+  seed:
+    build:
+      context: .
+      target: build
+    profiles: ['seed']
+    environment:
+      <<: *app-environment
+      SEED_ADMIN_EMAIL: ${SEED_ADMIN_EMAIL:-admin@multicomputos.com}
+      SEED_ADMIN_NAME: ${SEED_ADMIN_NAME:-Administrador de la plataforma}
+      SEED_ADMIN_PASSWORD: ${SEED_ADMIN_PASSWORD:-}
+    command: ['pnpm', 'exec', 'prisma', 'db', 'seed']
+    depends_on:
+      migrate:
+        condition: service_completed_successfully
+      redis:
+        condition: service_healthy
+      storage:
         condition: service_healthy
     restart: 'no'
 
@@ -182,3 +221,4 @@ volumes:
   postgres-data:
   redis-data:
   storage-data:
+  clamav-data:

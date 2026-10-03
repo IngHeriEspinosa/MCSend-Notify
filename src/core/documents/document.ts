@@ -35,6 +35,10 @@ export const DOCUMENT_ERROR_CODES = [
   'TOOLS_UNAVAILABLE',
   'INVALID_FILE',
   'PROCESSING_ERROR',
+  /** El antivirus detectó malware: el original se borra y no se reintenta. */
+  'MALWARE_DETECTED',
+  /** El antivirus no respondió (se reintenta). */
+  'SCAN_UNAVAILABLE',
 ] as const;
 export type DocumentErrorCode = (typeof DOCUMENT_ERROR_CODES)[number];
 

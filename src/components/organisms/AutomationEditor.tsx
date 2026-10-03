@@ -44,6 +44,7 @@ interface AutomationEditorProps {
     name: string;
     schedule: AutomationSchedule;
     timezone: string;
+    eventKey: string | null;
     definition: AutomationDefinition;
   };
   defaultTimezone: string;
@@ -100,6 +101,7 @@ export function AutomationEditor({
     automation?.schedule ?? { frequency: 'weekly', weekday: 1, hour: 9, minute: 0 },
   );
   const [timezone, setTimezone] = useState(automation?.timezone ?? defaultTimezone);
+  const [eventKey, setEventKey] = useState(automation?.eventKey ?? '');
   const [sources, setSources] = useState<DraftSource[]>(
     initial?.sources ?? [{ kind: 'changelog', days: 7, onlyNew: true }],
   );
@@ -139,6 +141,7 @@ export function AutomationEditor({
     event.preventDefault();
     const input: AutomationInput = {
       name,
+      eventKey: eventKey.trim().toLowerCase() || null,
       schedule,
       timezone,
       definition: {
@@ -248,6 +251,15 @@ export function AutomationEditor({
         <Typography variant="body2" color="text.secondary" aria-live="polite">
           {t('Automations.scheduleSummary', { schedule: scheduleText, timezone })}
         </Typography>
+        <TextField
+          label={t('Automations.eventKey')}
+          value={eventKey}
+          onChange={(event) => setEventKey(event.target.value)}
+          disabled={disabled}
+          helperText={t('Automations.eventKeyHint')}
+          placeholder="release.published"
+          slotProps={{ htmlInput: { maxLength: 64 } }}
+        />
       </Section>
 
       <Section title={t('Automations.sections.content')}>

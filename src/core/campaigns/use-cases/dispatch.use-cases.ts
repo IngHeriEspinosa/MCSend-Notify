@@ -12,6 +12,7 @@
  * - transitorios: vuelve a la cola con backoff; en el último intento queda FAILED;
  * - rechazos definitivos: FAILED (y supresión si la dirección no existe).
  */
+import type { EventPublisher } from '@/core/webhooks/webhook';
 import type { Clock } from '@/core/shared/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
 import { senderDomain } from '@/core/providers/provider-config';
@@ -422,6 +423,8 @@ export interface MaintenanceDeps {
   deliveries: DeliveryRepository;
   queue: CampaignQueue;
   clock: Clock;
+  /** Webhooks salientes (`campaign.sent`). */
+  events?: EventPublisher;
 }
 
 /** Tareas periódicas del worker que hacen el envío robusto ante caídas. */
@@ -448,12 +451,20 @@ export class CampaignMaintenanceUseCase {
     for (const campaign of await this.deps.campaigns.findSending()) {
       const context = this.context(campaign);
       if ((await this.deps.deliveries.countActive(context, campaign.id)) > 0) continue;
+      const finishedAt = this.deps.clock.now();
       if (
         await this.deps.campaigns.transition(context, campaign.id, ['SENDING'], 'SENT', {
-          finishedAt: this.deps.clock.now(),
+          finishedAt,
         })
       ) {
         completed += 1;
+        const record = await this.deps.campaigns.findById(context, campaign.id);
+        await this.deps.events?.publish(context, 'campaign.sent', {
+          campaignId: campaign.id,
+          name: record?.name ?? null,
+          recipients: record?.recipientCount ?? 0,
+          finishedAt: finishedAt.toISOString(),
+        });
       }
     }
     return completed;

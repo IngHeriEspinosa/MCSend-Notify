@@ -1,6 +1,22 @@
-# Proxy inverso de producción con TLS automático. Autor: Ing. Heri Espinosa
+# Proxy inverso de producción con TLS. Autor: Ing. Heri Espinosa
+#
+# CADDY_TLS=acme     → certificados de Let's Encrypt (APP_DOMAIN público).
+# CADDY_TLS=internal → CA local de Caddy (red interna o pruebas locales).
+# Las cabeceras de seguridad (CSP con nonce, HSTS, etc.) las pone la aplicación.
+
+(tls-acme) {
+}
+
+(tls-internal) {
+	tls internal
+}
+
 {$APP_DOMAIN} {
+	import tls-{$CADDY_TLS:acme}
 	encode zstd gzip
+
+	# No revelar el servidor.
+	header -Server
 
 	# El progreso de campañas usa Server-Sent Events: sin buffering.
 	reverse_proxy app:3000 {

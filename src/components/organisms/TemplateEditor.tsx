@@ -37,6 +37,7 @@ import {
   restoreTemplateVersionAction,
   saveTemplateAction,
 } from '@/app/_server/actions/templates.actions';
+import { altTextAction } from '@/app/_server/actions/ai.actions';
 import { useNotify } from '@/common/hooks/notifications';
 import { useAction } from '@/common/hooks/use-action';
 import { StatusChip } from '@/components/atoms/StatusChip';
@@ -121,6 +122,7 @@ export function TemplateEditor({
   const locale = useLocale();
   const notify = useNotify();
   const { run, pending, fieldErrors } = useAction();
+  const altText = useAction();
   const [name, setName] = useState(template.name);
   const [description, setDescription] = useState(template.description ?? '');
   const [body, setBody] = useState<TemplateBody>(template.body);
@@ -244,6 +246,13 @@ export function TemplateEditor({
   const errors = preview?.issues.filter((issue) => issue.severity === 'error') ?? [];
   const warnings = preview?.issues.filter((issue) => issue.severity === 'warning') ?? [];
 
+  const generateAltText = async (source: { src: string | null; documentId: string | null }) => {
+    const result = await altText.run(() =>
+      altTextAction(tenantSlug, { ...source, locale: body.locale, context: body.subject }),
+    );
+    return result.ok ? result.data.alt : null;
+  };
+
   const content = (() => {
     switch (body.format) {
       case 'BLOCKS':
@@ -253,6 +262,7 @@ export function TemplateEditor({
             onChange={(blocks: EmailBlock[]) => setBody({ ...body, content: { blocks } })}
             documents={documents}
             disabled={disabled}
+            generateAltText={aiEnabled && !disabled ? generateAltText : undefined}
           />
         );
       case 'MARKDOWN':

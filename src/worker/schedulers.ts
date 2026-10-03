@@ -13,6 +13,9 @@ export const DELIVERY_RECOVERY_INTERVAL_MS = 60_000;
 /** Caducidad de aprobaciones pendientes de campañas generadas por automatizaciones. */
 export const APPROVAL_EXPIRY_INTERVAL_MS = 60_000;
 
+/** Purga diaria de datos antiguos (retención RGPD) a las 03:30 UTC, fuera de horario. */
+export const RETENTION_SWEEP_PATTERN = '30 3 * * *';
+
 export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Promise<void> {
   await maintenanceQueue.upsertJobScheduler(
     'maintenance-heartbeat',
@@ -43,4 +46,9 @@ export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Pr
       { name, opts: { removeOnComplete: true, removeOnFail: 100 } },
     );
   }
+  await maintenanceQueue.upsertJobScheduler(
+    'maintenance-retention-sweep',
+    { pattern: RETENTION_SWEEP_PATTERN, tz: 'UTC' },
+    { name: MAINTENANCE_JOBS.retentionSweep, opts: { removeOnComplete: true, removeOnFail: 100 } },
+  );
 }

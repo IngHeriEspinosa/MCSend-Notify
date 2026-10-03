@@ -1,6 +1,7 @@
 import { beforeEach, describe, expect, it } from 'vitest';
 import { InMemoryBrandingRepository } from '@tests/fakes/content.fakes';
 import { FakeClock } from '@tests/fakes/identity.fakes';
+import { RecordingEventPublisher } from '@tests/fakes/webhook.fakes';
 import {
   campaignRecord,
   FakePreferences,
@@ -247,5 +248,71 @@ describe('eventos de proveedores', () => {
     expect(deliveries.deliveries.get(deliveryId)?.status).toBe('COMPLAINED');
     expect(preferences.suppressed.map((item) => item.reason)).toEqual(['COMPLAINT']);
     expect(events.events.get(unknown!)?.processedAt).not.toBeNull();
+  });
+});
+
+describe('webhooks salientes', () => {
+  it('una baja publica contact.unsubscribed con el contacto y la campaña', async () => {
+    const events = new RecordingEventPublisher();
+    const withEvents = new TrackingUseCase({
+      campaigns,
+      deliveries,
+      preferences,
+      links: fakeTrackingLinks,
+      branding: new InMemoryBrandingRepository(),
+      clock: new FakeClock(),
+      events,
+    });
+    await withEvents.unsubscribe(TENANT_ID, deliveryId, {});
+    expect(events.published).toEqual([
+      {
+        type: 'contact.unsubscribed',
+        data: expect.objectContaining({
+          contactId: 'contact-1',
+          email: 'ana@cliente.com',
+          campaignId,
+          scope: 'all',
+        }),
+      },
+    ]);
+  });
+
+  it('rebotes permanentes y quejas publican su evento; los mensajes desconocidos no', async () => {
+    const inbound = new InMemoryInboundEvents();
+    const publisher = new RecordingEventPublisher();
+    const apply = new ApplyProviderEventUseCase({
+      events: inbound,
+      deliveries,
+      preferences,
+      clock: new FakeClock(),
+      publisher,
+    });
+    const bounce = await inbound.insert(systemCtx, PROVIDER_ID, {
+      providerEventId: 'w1',
+      providerMessageId: 'provider-msg-1',
+      type: 'HARD_BOUNCE',
+      occurredAt: new Date('2026-10-02T12:00:00Z'),
+    });
+    const unknown = await inbound.insert(systemCtx, PROVIDER_ID, {
+      providerEventId: 'w2',
+      providerMessageId: 'otro',
+      type: 'COMPLAINT',
+      occurredAt: new Date(),
+    });
+    await apply.execute(systemCtx, bounce!);
+    await apply.execute(systemCtx, unknown!);
+    expect(publisher.published).toEqual([
+      {
+        type: 'delivery.bounced',
+        data: {
+          deliveryId,
+          campaignId,
+          contactId: 'contact-1',
+          email: 'ana@cliente.com',
+          occurredAt: '2026-10-02T12:00:00.000Z',
+          bounceType: 'hard',
+        },
+      },
+    ]);
   });
 });

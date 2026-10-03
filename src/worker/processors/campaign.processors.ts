@@ -7,6 +7,7 @@
  * (`moveToDelayed` + `DelayedError`), de modo que los límites no agotan los reintentos.
  */
 import { DelayedError, type Job } from 'bullmq';
+import type { AutomationTrigger } from '@/core/automations/automation';
 import type { SendOutcome } from '@/core/campaigns/use-cases/dispatch.use-cases';
 import { systemMailMessageSchema, type SystemMailMessage } from '@/core/identity/system-mail';
 import { systemContext, type TenantContext } from '@/core/shared/tenant-context';
@@ -84,7 +85,11 @@ export function createAutomationRunProcessor(deps: {
       context: TenantContext,
       automationId: string,
       idempotencyKey: string,
-      options: { trigger: 'schedule' | 'manual'; finalAttempt: boolean },
+      options: {
+        trigger: AutomationTrigger;
+        finalAttempt: boolean;
+        event?: { key: string; data: Record<string, unknown> | null } | undefined;
+      },
     ): Promise<unknown>;
   };
 }) {
@@ -100,6 +105,7 @@ export function createAutomationRunProcessor(deps: {
       deps.run.execute(context, data.automationId, idempotencyKey, {
         trigger: data.trigger,
         finalAttempt: job.attemptsMade + 1 >= attempts,
+        event: data.event,
       }),
     );
   };

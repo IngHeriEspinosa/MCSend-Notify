@@ -73,6 +73,7 @@ export default async function AutomationPage({
             name: automation.name,
             schedule: automation.schedule,
             timezone: automation.timezone,
+            eventKey: automation.eventKey,
             definition: automation.definition,
           }}
           defaultTimezone={tenant.timezone}

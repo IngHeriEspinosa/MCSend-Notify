@@ -16,7 +16,7 @@
     "dev": "next dev -p 3020",
     "dev:worker": "tsx watch --env-file-if-exists=.env src/worker/index.ts",
     "dev:all": "docker compose --profile app up --build",
-    "build": "prisma generate && next build && node scripts/build-worker.mjs",
+    "build": "prisma generate && next build && node scripts/build-sw.mjs && node scripts/build-worker.mjs",
     "build:worker": "node scripts/build-worker.mjs",
     "start": "next start -p 3020",
     "start:worker": "node dist/worker/index.mjs",
@@ -26,7 +26,7 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "lint": "eslint .",
-    "typecheck": "next typegen && tsc --noEmit",
+    "typecheck": "next typegen && tsc --noEmit && tsc -p src/sw/tsconfig.json --noEmit",
     "format": "prettier --write .",
     "format:check": "prettier --check .",
     "test": "vitest run --project unit",
@@ -34,7 +34,9 @@
     "test:int": "vitest run --project integration",
     "test:watch": "vitest --project unit",
     "test:coverage": "vitest run --project unit --coverage",
+    "test:e2e": "playwright test",
     "audit": "pnpm audit --audit-level high",
+    "secrets:rotate": "tsx --env-file-if-exists=.env src/worker/cli/rotate-secrets.ts",
     "postinstall": "prisma generate"
   },
   "dependencies": {
@@ -79,7 +81,10 @@
     "zod": "4.6.5"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.13.0",
     "@eslint/js": "9.39.5",
+    "@playwright/test": "1.63.0",
+    "@serwist/build": "9.5.12",
     "@tailwindcss/postcss": "4.3.3",
     "@types/markdown-it": "14.2.0",
     "@types/node": "26.6.3",
@@ -100,6 +105,7 @@
     "prettier": "3.9.9",
     "prettier-plugin-tailwindcss": "0.8.1",
     "prisma": "7.10.0",
+    "serwist": "9.5.12",
     "tailwindcss": "4.3.3",
     "tsx": "4.23.15",
     "typescript": "5.9.3",

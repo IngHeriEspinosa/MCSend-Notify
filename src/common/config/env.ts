@@ -39,6 +39,9 @@ export const serverEnvSchema = z
     EMAIL_SEND_CONCURRENCY: z.coerce.number().int().min(1).max(200).default(20),
     /** Carpeta de los binarios de poppler (pdfinfo, pdftoppm, pdftotext); vacío = PATH. */
     POPPLER_BIN_DIR: optionalString,
+    /** Antivirus opcional: host de clamd (perfil `security` de Docker). Vacío = sin análisis. */
+    CLAMAV_HOST: optionalString,
+    CLAMAV_PORT: z.coerce.number().int().min(1).max(65535).default(3310),
     /**
      * Permite conectar con hosts privados (SMTP, webhooks). Solo para desarrollo con Mailpit en la
      * red de Docker; en producción debe quedar en false (protección SSRF).

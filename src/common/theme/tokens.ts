@@ -26,6 +26,10 @@ export interface ColorSchemeTokens {
   primary: { main: string; light: string; dark: string; contrastText: string };
   secondary: { main: string; light: string; dark: string; contrastText: string };
   info: { main: string; contrastText: string };
+  /** Estados (avisos, chips, botones): el texto de contraste y el propio color cumplen AA. */
+  success: { main: string; contrastText: string };
+  warning: { main: string; contrastText: string };
+  error: { main: string; contrastText: string };
   background: { default: string; paper: string };
   text: { primary: string; secondary: string };
   divider: string;
@@ -41,7 +45,12 @@ export const lightScheme: ColorSchemeTokens = {
     dark: '#C98F1F',
     contrastText: '#1A1A1A',
   },
-  info: { main: brandColors.sky, contrastText: '#FFFFFF' },
+  // El Cielo con texto blanco no llega a AA (3,85:1): se usa su variante oscura (5,6:1).
+  info: { main: '#006F97', contrastText: '#FFFFFF' },
+  // Los colores por defecto de MUI no llegan a AA en `warning` (#ED6C02 con blanco, 3,1:1).
+  success: { main: '#2E7D32', contrastText: '#FFFFFF' },
+  warning: { main: '#B45309', contrastText: '#FFFFFF' },
+  error: { main: '#C62828', contrastText: '#FFFFFF' },
   background: { default: '#F5F7F9', paper: '#FFFFFF' },
   text: { primary: '#1A1A1A', secondary: '#5F5F5D' },
   divider: '#D9DCDF',
@@ -57,6 +66,10 @@ export const darkScheme: ColorSchemeTokens = {
     contrastText: '#1A1A1A',
   },
   info: { main: '#5CB8D6', contrastText: '#121212' },
+  // En oscuro, tonos claros con texto oscuro (el `error` de MUI con blanco da 3,7:1).
+  success: { main: '#81C784', contrastText: '#121212' },
+  warning: { main: '#F0C066', contrastText: '#121212' },
+  error: { main: '#EF9A9A', contrastText: '#121212' },
   background: { default: '#121212', paper: '#1E1E1E' },
   text: { primary: '#ECEFF1', secondary: '#B0B0AE' },
   divider: '#2E3338',

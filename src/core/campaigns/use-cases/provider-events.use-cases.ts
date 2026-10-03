@@ -5,6 +5,7 @@
  * 2. Aplicación (worker): transición monótona de la entrega y supresión automática en rebotes
  *    permanentes y quejas (protege la reputación del remitente).
  */
+import type { EventPublisher } from '@/core/webhooks/webhook';
 import { DomainError } from '@/core/shared/domain-error';
 import type { Clock, SecretCipher } from '@/core/shared/ports';
 import { systemContext, type TenantContext } from '@/core/shared/tenant-context';
@@ -119,6 +120,8 @@ export class ApplyProviderEventUseCase {
       deliveries: DeliveryRepository;
       preferences: RecipientPreferencesRepository;
       clock: Clock;
+      /** Webhooks salientes (`delivery.bounced`, `delivery.complained`). */
+      publisher?: EventPublisher;
     },
   ) {}
 
@@ -161,6 +164,10 @@ export class ApplyProviderEventUseCase {
           );
           await this.deps.deliveries.addEvent(context, { ...base, type: 'BOUNCED' });
           await this.deps.preferences.suppress(context, contact, 'HARD_BOUNCE', 'provider');
+          await this.deps.publisher?.publish(context, 'delivery.bounced', {
+            ...this.webhookData(delivery, event.occurredAt),
+            bounceType: 'hard',
+          });
           break;
         case 'SOFT_BOUNCE':
           await this.deps.deliveries.addEvent(context, {
@@ -178,9 +185,27 @@ export class ApplyProviderEventUseCase {
           );
           await this.deps.deliveries.addEvent(context, { ...base, type: 'COMPLAINED' });
           await this.deps.preferences.suppress(context, contact, 'COMPLAINT', 'provider');
+          await this.deps.publisher?.publish(
+            context,
+            'delivery.complained',
+            this.webhookData(delivery, event.occurredAt),
+          );
           break;
       }
     }
     await this.deps.events.markProcessed(context, eventId, this.deps.clock.now());
+  }
+
+  private webhookData(
+    delivery: { id: string; campaignId: string; contactId: string; email: string },
+    occurredAt: Date,
+  ) {
+    return {
+      deliveryId: delivery.id,
+      campaignId: delivery.campaignId,
+      contactId: delivery.contactId,
+      email: delivery.email,
+      occurredAt: occurredAt.toISOString(),
+    };
   }
 }

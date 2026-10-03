@@ -82,8 +82,20 @@ export const automationDefinitionSchema = z
   });
 export type AutomationDefinition = z.infer<typeof automationDefinitionSchema>;
 
+/** Nombre de evento de la API: `release.published`, `ticket.closed`... */
+export const EVENT_KEY_PATTERN = /^[a-z0-9][a-z0-9._-]{0,63}$/;
+
 export const automationInputSchema = z.object({
   name: z.string().trim().min(2).max(120),
+  /** Evento de /api/v1/events que también la dispara (además de la programación). */
+  eventKey: z
+    .string()
+    .trim()
+    .toLowerCase()
+    .transform((value) => (value === '' ? null : value))
+    .pipe(z.string().regex(EVENT_KEY_PATTERN).nullable())
+    .nullable()
+    .default(null),
   schedule: automationScheduleSchema,
   timezone: z.string().refine(isValidTimeZone, { message: 'INVALID_TIMEZONE' }),
   definition: automationDefinitionSchema,
@@ -104,6 +116,21 @@ export type AutomationRunStatus = (typeof AUTOMATION_RUN_STATUSES)[number];
 export const APPROVAL_STATUSES = ['PENDING', 'APPROVED', 'REJECTED', 'EXPIRED'] as const;
 export type ApprovalStatus = (typeof APPROVAL_STATUSES)[number];
 
+export const AUTOMATION_TRIGGERS = ['schedule', 'manual', 'event'] as const;
+export type AutomationTrigger = (typeof AUTOMATION_TRIGGERS)[number];
+
+/** Cuerpo de POST /api/v1/events. `id` hace idempotente el disparo (reintentos del emisor). */
+export const automationEventSchema = z.object({
+  event: z.string().trim().toLowerCase().regex(EVENT_KEY_PATTERN),
+  id: z
+    .string()
+    .trim()
+    .regex(/^[A-Za-z0-9._-]{1,100}$/)
+    .optional(),
+  data: z.record(z.string(), z.unknown()).optional(),
+});
+export type AutomationEvent = z.infer<typeof automationEventSchema>;
+
 export interface AutomationRecord {
   id: string;
   name: string;
@@ -111,6 +138,7 @@ export interface AutomationRecord {
   schedule: AutomationSchedule;
   timezone: string;
   definition: AutomationDefinition;
+  eventKey: string | null;
   createdById: string;
   lastRunAt: Date | null;
   createdAt: Date;
@@ -131,7 +159,7 @@ export interface AutomationRunRecord {
   id: string;
   automationId: string;
   idempotencyKey: string;
-  trigger: 'schedule' | 'manual';
+  trigger: AutomationTrigger;
   status: AutomationRunStatus;
   campaignId: string | null;
   templateId: string | null;

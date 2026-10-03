@@ -64,6 +64,7 @@ function buildNavigation(slug: string, actor: Actor, pendingApprovals: number): 
         ...item('tags', 'settings/tags', 'contact:write'),
         ...item('topics', 'settings/topics', 'topic:manage'),
         ...item('apiKeys', 'settings/api-keys', 'apikey:manage'),
+        ...item('webhooks', 'settings/webhooks', 'webhook:manage'),
         ...item('activity', 'activity', 'audit:read'),
       ],
     },

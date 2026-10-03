@@ -1,7 +1,11 @@
 # =============================================================================
-# Producción en VM: Caddy publica la app con TLS automático (Let's Encrypt).
-# Uso: docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+# Producción en VM: Caddy publica la app con TLS. Autor: Ing. Heri Espinosa
+#
+#   docker compose -f compose.yaml -f compose.prod.yaml up -d --build
+#
 # Ningún servicio interno publica puertos; solo Caddy expone 80 y 443.
+# CADDY_TLS=acme (por defecto) obtiene certificados de Let's Encrypt para APP_DOMAIN;
+# CADDY_TLS=internal usa la CA local de Caddy (red interna o pruebas, ver docs/DEPLOYMENT.md).
 # =============================================================================
 services:
   caddy:
@@ -9,6 +13,7 @@ services:
     restart: unless-stopped
     environment:
       APP_DOMAIN: ${APP_DOMAIN}
+      CADDY_TLS: ${CADDY_TLS:-acme}
     ports:
       - '80:80'
       - '443:443'

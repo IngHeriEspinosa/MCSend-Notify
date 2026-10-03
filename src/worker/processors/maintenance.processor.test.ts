@@ -31,3 +31,16 @@ describe('createMaintenanceProcessor', () => {
     expect(approvals.expireDue).toHaveBeenCalledOnce();
   });
 });
+
+describe('retención de datos', () => {
+  it('el barrido diario aplica la retención', async () => {
+    const retention = { execute: vi.fn().mockResolvedValue({ ai_usage: 0 }) };
+    await createMaintenanceProcessor(
+      { beat: vi.fn() },
+      undefined,
+      undefined,
+      retention,
+    )({ name: MAINTENANCE_JOBS.retentionSweep });
+    expect(retention.execute).toHaveBeenCalledOnce();
+  });
+});

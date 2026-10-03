@@ -30,6 +30,7 @@ import SendOutlined from '@mui/icons-material/SendOutlined';
 import SettingsOutlined from '@mui/icons-material/SettingsOutlined';
 import TuneOutlined from '@mui/icons-material/TuneOutlined';
 import UploadFileOutlined from '@mui/icons-material/UploadFileOutlined';
+import WebhookOutlined from '@mui/icons-material/WebhookOutlined';
 import AppBar from '@mui/material/AppBar';
 import Avatar from '@mui/material/Avatar';
 import Button from '@mui/material/Button';
@@ -38,6 +39,7 @@ import Drawer from '@mui/material/Drawer';
 import Chip from '@mui/material/Chip';
 import IconButton from '@mui/material/IconButton';
 import List from '@mui/material/List';
+import ListItem from '@mui/material/ListItem';
 import ListItemButton from '@mui/material/ListItemButton';
 import ListItemIcon from '@mui/material/ListItemIcon';
 import ListItemText from '@mui/material/ListItemText';
@@ -76,6 +78,7 @@ export type NavIcon =
   | 'tags'
   | 'topics'
   | 'apiKeys'
+  | 'webhooks'
   | 'activity';
 
 const ICONS: Record<NavIcon, ReactElement> = {
@@ -100,6 +103,7 @@ const ICONS: Record<NavIcon, ReactElement> = {
   tags: <LabelOutlined />,
   topics: <NotificationsActiveOutlined />,
   apiKeys: <KeyOutlined />,
+  webhooks: <WebhookOutlined />,
   activity: <HistoryOutlined />,
 };
 
@@ -155,40 +159,39 @@ export function AppShell({ tenant, tenants, user, navigation, children }: AppShe
       <Divider />
       <div className="flex-1 overflow-y-auto py-2">
         {navigation.map((group) => (
-          <List
-            key={group.key}
-            dense
-            subheader={
-              group.key === 'main' ? undefined : (
-                <ListSubheader component="div" disableSticky>
-                  {t(`Nav.${group.key}`)}
-                </ListSubheader>
-              )
-            }
-          >
-            {group.items.map((item) => (
-              <ListItemButton
-                key={item.key}
-                component={Link}
-                href={item.href}
-                selected={isActive(item.href)}
-                aria-current={isActive(item.href) ? 'page' : undefined}
-                onClick={() => setMobileOpen(false)}
-                className="mx-2 rounded-lg"
-              >
-                <ListItemIcon className="min-w-10">{ICONS[item.key]}</ListItemIcon>
-                <ListItemText primary={t(`Nav.${item.key}`)} />
-                {item.badge ? (
-                  <Chip
-                    size="small"
-                    color="warning"
-                    label={item.badge}
-                    aria-label={t('Nav.pendingCount', { count: item.badge })}
-                  />
-                ) : null}
-              </ListItemButton>
-            ))}
-          </List>
+          <div key={group.key}>
+            {/* El título visible del grupo nombra la lista (aria-label): una <ul> solo admite <li>. */}
+            {group.key === 'main' ? null : (
+              <ListSubheader component="div" disableSticky aria-hidden="true">
+                {t(`Nav.${group.key}`)}
+              </ListSubheader>
+            )}
+            <List dense aria-label={group.key === 'main' ? undefined : t(`Nav.${group.key}`)}>
+              {group.items.map((item) => (
+                <ListItem key={item.key} disablePadding>
+                  <ListItemButton
+                    component={Link}
+                    href={item.href}
+                    selected={isActive(item.href)}
+                    aria-current={isActive(item.href) ? 'page' : undefined}
+                    onClick={() => setMobileOpen(false)}
+                    className="mx-2 rounded-lg"
+                  >
+                    <ListItemIcon className="min-w-10">{ICONS[item.key]}</ListItemIcon>
+                    <ListItemText primary={t(`Nav.${item.key}`)} />
+                    {item.badge ? (
+                      <Chip
+                        size="small"
+                        color="warning"
+                        label={item.badge}
+                        aria-label={t('Nav.pendingCount', { count: item.badge })}
+                      />
+                    ) : null}
+                  </ListItemButton>
+                </ListItem>
+              ))}
+            </List>
+          </div>
         ))}
       </div>
     </nav>

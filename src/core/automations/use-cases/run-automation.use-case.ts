@@ -17,12 +17,19 @@ import type { CampaignRepository } from '@/core/campaigns/ports';
 import type { ManageCampaignsUseCase } from '@/core/campaigns/use-cases/campaigns.use-cases';
 import type { ChangelogRepository } from '@/core/changelog/changelog';
 import type { SystemMailQueue } from '@/core/identity/system-mail';
+import { MAX_SOURCES, type DraftSource } from '@/core/ai/sources';
 import { isDomainError } from '@/core/shared/domain-error';
+import type { EventPublisher } from '@/core/webhooks/webhook';
 import type { Clock } from '@/core/shared/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
 import type { TemplateRepository } from '@/core/templates/ports';
 import type { BrandingRepository } from '@/core/tenants/branding';
-import { campaignPatchFor, type AutomationRecord, type AutomationRunRecord } from '../automation';
+import {
+  campaignPatchFor,
+  type AutomationRecord,
+  type AutomationRunRecord,
+  type AutomationTrigger,
+} from '../automation';
 import type {
   AppLinks,
   ApprovalRepository,
@@ -47,14 +54,18 @@ export interface RunAutomationDeps {
   branding: Pick<BrandingRepository, 'getEmailProfile'>;
   audit: AuditLogger;
   clock: Clock;
+  /** Webhooks salientes (`campaign.approval_requested`, `automation.run_failed`). */
+  events?: EventPublisher;
 }
 
 /** Errores de dominio transitorios: el job se reintenta en lugar de marcar la ejecución fallida. */
 const RETRYABLE_REASONS = new Set(['AI_UNAVAILABLE', 'AI_PROVIDER_BUSY']);
 
 export interface RunOptions {
-  trigger: 'schedule' | 'manual';
+  trigger: AutomationTrigger;
   finalAttempt: boolean;
+  /** Evento de la API que la disparó: sus datos se añaden como fuente. */
+  event?: { key: string; data: Record<string, unknown> | null } | undefined;
 }
 
 export class RunAutomationUseCase {
@@ -68,7 +79,7 @@ export class RunAutomationUseCase {
   ): Promise<AutomationRunRecord | null> {
     const automation = await this.deps.automations.findById(context, automationId);
     if (!automation) return null;
-    if (options.trigger === 'schedule' && !automation.enabled) return null;
+    if (options.trigger !== 'manual' && !automation.enabled) return null;
 
     const { run } = await this.deps.runs.start(context, {
       automationId,
@@ -78,7 +89,7 @@ export class RunAutomationUseCase {
     if (run.status !== 'RUNNING') return run;
 
     try {
-      await this.process(context, automation, run);
+      await this.process(context, automation, run, options.event);
     } catch (error) {
       const reason = isDomainError(error)
         ? String(error.details?.reason ?? error.code)
@@ -89,6 +100,12 @@ export class RunAutomationUseCase {
         status: 'FAILED',
         error: reason,
         finishedAt: this.deps.clock.now(),
+      });
+      await this.deps.events?.publish(context, 'automation.run_failed', {
+        automationId,
+        automationName: automation.name,
+        runId: run.id,
+        reason,
       });
       await this.deps.audit.record(context, {
         action: 'automation.run_failed',
@@ -105,6 +122,7 @@ export class RunAutomationUseCase {
     context: TenantContext,
     automation: AutomationRecord,
     run: AutomationRunRecord,
+    event: RunOptions['event'],
   ): Promise<void> {
     const { definition } = automation;
     const now = this.deps.clock.now();
@@ -117,7 +135,7 @@ export class RunAutomationUseCase {
     if (!templateId) {
       const { sources, changelogIds: ids } = await this.deps.collector.collect(
         context,
-        definition.sources,
+        sourcesFor(definition.sources, event),
       );
       changelogIds = ids;
       if (this.shouldSkip(automation, sources, ids)) {
@@ -181,6 +199,13 @@ export class RunAutomationUseCase {
       expiresAt: new Date(now.getTime() + definition.approvalTimeoutHours * 3_600_000),
     });
     await this.deps.runs.transition(context, run.id, ['RUNNING'], { status: 'AWAITING_APPROVAL' });
+    await this.deps.events?.publish(context, 'campaign.approval_requested', {
+      campaignId,
+      approvalId: approval.id,
+      automationId: automation.id,
+      automationName: automation.name,
+      expiresAt: approval.expiresAt.toISOString(),
+    });
     await this.notifyApprovers(context, automation, approval.id, approval.expiresAt, {
       campaignId,
       templateId,
@@ -227,4 +252,15 @@ export class RunAutomationUseCase {
       });
     }
   }
+}
+
+/** Fuentes de la ejecución: los datos del evento de la API (si los hay) van primero. */
+function sourcesFor(sources: readonly DraftSource[], event: RunOptions['event']): DraftSource[] {
+  if (!event?.data) return [...sources];
+  const eventSource: DraftSource = {
+    kind: 'text',
+    title: `Evento ${event.key}`,
+    text: JSON.stringify(event.data, null, 2).slice(0, 20_000),
+  };
+  return [eventSource, ...sources].slice(0, MAX_SOURCES);
 }

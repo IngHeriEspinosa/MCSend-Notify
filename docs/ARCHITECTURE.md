@@ -27,6 +27,65 @@ flowchart LR
   worker -. logs warn+ .-> mclog
 ```
 
+### Modelo C4
+
+**Nivel 1: contexto.** Quién usa la plataforma y con qué sistemas habla.
+
+```mermaid
+C4Context
+  title MC Send Notify: contexto
+  Person(operator, "Equipo de producto", "Prepara campañas, aprueba borradores y configura su aplicación")
+  Person(admin, "Administrador de plataforma", "Crea aplicaciones, vigila colas y costes de IA")
+  Person_Ext(customer, "Cliente final", "Recibe los correos, abre, hace clic o se da de baja")
+  System(mcsn, "MC Send Notify", "Comunicaciones por correo multi-aplicación con IA")
+  System_Ext(apps, "Aplicaciones de Multicómputos", "MCSupport, MCLog...: publican novedades y eventos; reciben webhooks")
+  System_Ext(providers, "Proveedores de correo", "SMTP, Microsoft 365, Resend, Amazon SES")
+  System_Ext(ai, "Proveedor de IA", "Anthropic (Claude) u OpenAI-compatible")
+  System_Ext(entra, "Microsoft Entra ID", "Inicio de sesión único")
+  Rel(operator, mcsn, "Usa", "HTTPS / PWA")
+  Rel(admin, mcsn, "Administra", "HTTPS")
+  Rel(apps, mcsn, "Novedades, contactos y eventos", "API v1 con clave")
+  Rel(mcsn, apps, "Webhooks firmados", "HTTPS")
+  Rel(mcsn, providers, "Envía correos", "SMTP / HTTPS")
+  Rel(providers, mcsn, "Entregas, rebotes y quejas", "Webhooks")
+  Rel(mcsn, ai, "Redacta, traduce y describe imágenes", "HTTPS")
+  Rel(mcsn, entra, "Autentica", "OIDC")
+  Rel(customer, mcsn, "Aperturas, clics y bajas", "/trk")
+  Rel(mcsn, customer, "Correos", "vía proveedor")
+```
+
+**Nivel 2: contenedores.** Procesos y almacenes que se despliegan con Docker Compose.
+
+```mermaid
+C4Container
+  title MC Send Notify: contenedores
+  Person(user, "Usuario")
+  System_Ext(ext, "Proveedores, IA y receptores de webhooks")
+  System_Boundary(vm, "VM con Docker Compose") {
+    Container(caddy, "Caddy", "Caddy 2.10", "TLS (ACME o CA interna), compresión, proxy")
+    Container(app, "App web", "Next.js 16, React 19, MUI 9", "UI, Server Actions, API v1, /trk, webhooks entrantes, PWA")
+    Container(worker, "Worker", "Node 24, BullMQ 6", "Envíos, documentos, automatizaciones, webhooks salientes, retención")
+    ContainerDb(pg, "PostgreSQL 18", "Prisma 7", "Datos de negocio, aislados por tenant")
+    ContainerDb(redis, "Redis 8", "BullMQ", "Colas, límites de envío y de peticiones")
+    ContainerDb(s3, "SeaweedFS", "S3", "Documentos, miniaturas y logotipos")
+    Container(gotenberg, "Gotenberg 8", "LibreOffice + Chromium", "Conversión a PDF sin red ni JavaScript")
+    Container(clamav, "ClamAV (opcional)", "clamd", "Antivirus de documentos")
+  }
+  Rel(user, caddy, "HTTPS")
+  Rel(caddy, app, "HTTP")
+  Rel(app, pg, "SQL")
+  Rel(app, redis, "Encola")
+  Rel(app, s3, "S3")
+  Rel(worker, pg, "SQL")
+  Rel(worker, redis, "Consume")
+  Rel(worker, s3, "S3")
+  Rel(worker, gotenberg, "HTTP")
+  Rel(worker, clamav, "INSTREAM")
+  Rel(worker, ext, "SMTP / HTTPS")
+```
+
+**Nivel 3: componentes.** Están descritos en las secciones siguientes: capas (§2), multi-tenancy (§5), envío (§10) e IA (§13).
+
 ## 2. Capas
 
 | Capa            | Carpeta              | Responsabilidad                                                               | Puede depender de                    |
@@ -401,8 +460,86 @@ sequenceDiagram
 - **Atomic Design:**
   - `atoms`: `BrandLogo`, `StatusChip`, `ColorSwatch` (SVG, sin estilos en línea).
   - `molecules`: `PageHeader`, `StatCard`, `ConfirmDialog`, `CopyField`, `LinkButton`, `EmptyState`, `ThemeToggle`, `LocaleSwitcher`, `FileDropzone`, `EmailPreviewFrame`.
-  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, `ProvidersManager`, `SendersManager`, `CampaignsTable`, `CampaignEditor` (Stepper de 5 pasos), `CampaignReport` (DataGrid con paginación en servidor), `ActivityChart` (MUI X Charts con tabla alternativa accesible), `PreferencesForm`, `PasswordResetForms`, `AiSettingsForm`, `AiDraftDialog`, `TemplateAiTools`, `CampaignAiSummary`, `ChangelogManager`, `AutomationsTable`, `AutomationEditor`, `AutomationRuns`, `ApprovalsTable`, `ApprovalReview`, etc.; molecules nuevas `SourcesEditor` y `MultiSelectField`.
+  - `organisms`: `AppShell`, `ContactsDataGrid`, `ContactForm`, `ImportUploader`, `ImportMapper`, `SegmentEditor`, `MembersManager`, `ApiKeysManager`, `TemplatesTable`, `TemplateEditor`, `BlockEditor`, `DocumentsManager`, `DocumentActions`, `BrandingForm`, `ProvidersManager`, `SendersManager`, `CampaignsTable`, `CampaignEditor` (Stepper de 5 pasos), `CampaignReport` (DataGrid con paginación en servidor), `ActivityChart` (MUI X Charts con tabla alternativa accesible), `PreferencesForm`, `PasswordResetForms`, `AiSettingsForm`, `AiDraftDialog`, `TemplateAiTools`, `CampaignAiSummary`, `ChangelogManager`, `AutomationsTable`, `AutomationEditor`, `AutomationRuns`, `ApprovalsTable`, `ApprovalReview`, `WebhooksManager`, `QueuesAdmin`, etc.; molecules nuevas `SourcesEditor`, `MultiSelectField`, `AdminNav` y `OfflineBanner`; atom `ServiceWorkerRegistrar`.
 - **Server Components** cargan los datos; los componentes cliente solo reciben datos serializables y llaman a Server Actions.
 - **Tailwind y MUI conviven** mediante capas CSS (`@layer theme, base, mui, components, utilities`). Las variables CSS que genera MUI (prefijo `--mc-`) se exponen como colores de Tailwind (`bg-primary`, `text-ink-muted`...), con una sola fuente de verdad en [src/common/theme/tokens.ts](../src/common/theme/tokens.ts).
 - **Modo oscuro** por clase en `<html>`, compartido por MUI y Tailwind, sin parpadeo inicial.
 - **`loading.tsx`** en las páginas del tenant muestra un esqueleto y limita el _prefetch_ de los enlaces del menú.
+
+## 16. PWA
+
+```mermaid
+flowchart LR
+  page[Página] -->|fetch| sw{Service worker}
+  sw -->|/_next/static| cache[(Caché: CacheFirst)]
+  sw -->|/brand, /icons| swr[(Caché: StaleWhileRevalidate)]
+  sw -->|navegación, /api, /trk| net[Red]
+  net -. sin conexión .-> offline[/es/offline o /en/offline precargadas/]
+```
+
+- **Service worker:** [src/sw/sw.ts](../src/sw/sw.ts) (Serwist), compilado con esbuild después de `next build` ([scripts/build-sw.mjs](../scripts/build-sw.mjs)). Turbopack se mantiene.
+- **Privacidad:** los datos de los tenants nunca se guardan en el dispositivo; solo se cachean recursos estáticos y de marca.
+- **Registro y aviso:** el service worker se registra solo en producción. `OfflineBanner` avisa sin conexión.
+- **Detalle de las decisiones:** [ADR 0013](adr/0013-pwa-service-worker.md).
+
+## 17. Webhooks salientes y eventos de la API
+
+```mermaid
+sequenceDiagram
+  participant UC as Caso de uso (baja, rebote, campaña enviada...)
+  participant P as WebhookPublisher
+  participant DB as PostgreSQL
+  participant Q as Cola outbound-webhook
+  participant W as Worker (DeliverWebhook)
+  participant R as Receptor
+  UC->>P: publish(tipo, datos)  (nunca lanza)
+  P->>DB: webhook_deliveries (una por destino, mismo eventId)
+  P->>Q: encola ids
+  Q->>W: job
+  W->>DB: lee entrega y secreto (descifra con AAD)
+  W->>R: POST firmado (x-mcsn-signature v1=HMAC)
+  alt 2xx
+    W->>DB: SUCCEEDED, fallos = 0
+  else error y quedan intentos
+    W->>DB: PENDING + reintento con backoff
+  else último intento
+    W->>DB: FAILED, fallos + 1 (desactiva a los 20)
+  end
+```
+
+- **Puerto `EventPublisher`:** los casos de uso de seguimiento, eventos de proveedor, mantenimiento y automatizaciones reciben este puerto opcional. Los tests usan un doble que registra los eventos.
+- **`POST /api/v1/events`:** dispara las automatizaciones activas con el mismo `eventKey` (cola `automation-run`, clave `event-{id}`). Los datos del evento llegan a la IA como fuente no fiable.
+- **Detalle de las decisiones:** [ADR 0014](adr/0014-outbound-webhooks-events.md).
+
+## 18. Privacidad, retención y antivirus
+
+- **`core/privacy`:**
+  - `EraseContactUseCase` borra el contacto y anonimiza sus entregas en una transacción;
+  - `ApplyRetentionUseCase` purga cada día por antigüedad.
+- **Adaptadores:** `PrismaPersonalDataEraser` y `PrismaRetentionRepository`, que borra en lotes de 5 000 por `ctid`.
+- **Rotación de claves:** [src/infrastructure/crypto/secret-rotation.ts](../src/infrastructure/crypto/secret-rotation.ts) y la CLI `rotate-secrets`, empaquetada con el worker.
+- **Antivirus:** puerto `MalwareScanner` en `core/documents` y adaptador `ClamdScanner` (`INSTREAM` por TCP). Solo se activa con `CLAMAV_HOST`.
+- **Detalle de las decisiones:** [ADR 0015](adr/0015-privacy-retention-keys.md).
+
+## 19. Administración de la plataforma
+
+- **Módulo `core/platform`:**
+  - `ManageQueuesUseCase`, sobre el puerto `QueueAdmin` (adaptador `BullQueueAdmin`, limitado a las colas de `QUEUE_NAMES`);
+  - `PlatformAiUsageUseCase`, sobre `PlatformAiUsageRepository` (agregado por tenant, sin ámbito de tenant y solo para SUPER_ADMIN).
+- **Interfaz:** rutas `/[locale]/admin/{tenants,queues,ai-usage}` con un layout que exige SUPER_ADMIN. La comprobación se repite en las acciones y en los casos de uso (defensa en profundidad).
+
+## 20. Texto alternativo con IA
+
+```mermaid
+flowchart LR
+  editor[BlockEditor: bloque imagen] -->|altTextAction| assist[AiAssistUseCase.altText]
+  assist --> loader[ImageLoader]
+  loader -->|documento| s3[(Miniatura en S3)]
+  loader -->|URL https| fetch[safeFetch ≤ 5 MB, sin SVG]
+  loader --> sharp[sharp: ≤ 1568 px, JPEG sin metadatos]
+  assist -->|imagen + contexto| model[LanguageModel: bloque image / data URL]
+  model --> guard[Sin enlaces ni Markdown, ≤ 125 caracteres]
+```
+
+- **Puerto `LanguageModel`:** acepta `images`. El adaptador de Claude las envía como bloques `image` en base64; el OpenAI-compatible, como `image_url` con _data URL_.
+- **Sin imagen:** la petición mantiene el formato de solo texto anterior.
