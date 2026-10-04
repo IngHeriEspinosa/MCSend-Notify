@@ -9,6 +9,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { PublicAssetLinks } from '@/core/documents/ports';
+import type { TrackingHosts } from './tracking-host-directory';
 
 const DOMAIN = 'mcsn-asset-v1';
 const SIGNATURE_BYTES = 16;
@@ -25,23 +26,29 @@ export type AssetTokenPayload = z.infer<typeof payloadSchema>;
 export class HmacPublicAssetLinks implements PublicAssetLinks {
   private readonly baseUrl: string;
 
+  /** `hosts`: dominio de seguimiento propio de cada tenant (si no, siempre `baseUrl`). */
   constructor(
     private readonly secret: string,
     baseUrl: string,
+    private readonly hosts?: Pick<TrackingHosts, 'baseUrlFor'>,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  private base(tenantId: string): string {
+    return this.hosts?.baseUrlFor(tenantId) ?? this.baseUrl;
+  }
+
   documentThumbnail(tenantId: string, documentId: string): string {
-    return `${this.baseUrl}/trk/i/${this.sign({ v: 1, p: 'thumb', t: tenantId, r: documentId })}`;
+    return `${this.base(tenantId)}/trk/i/${this.sign({ v: 1, p: 'thumb', t: tenantId, r: documentId })}`;
   }
 
   documentDownload(tenantId: string, documentId: string): string {
-    return `${this.baseUrl}/trk/d/${this.sign({ v: 1, p: 'file', t: tenantId, r: documentId })}`;
+    return `${this.base(tenantId)}/trk/d/${this.sign({ v: 1, p: 'file', t: tenantId, r: documentId })}`;
   }
 
   tenantLogo(tenantId: string, logoKey: string): string {
-    return `${this.baseUrl}/trk/i/${this.sign({ v: 1, p: 'logo', t: tenantId, r: logoKey })}`;
+    return `${this.base(tenantId)}/trk/i/${this.sign({ v: 1, p: 'logo', t: tenantId, r: logoKey })}`;
   }
 
   /** Carga verificada, o null si el token está manipulado o mal formado. */

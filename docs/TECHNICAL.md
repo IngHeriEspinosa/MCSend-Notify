@@ -275,17 +275,17 @@ La respuesta pública solo indica `up` o `down`. El detalle del error va a los l
 
 ### Colas de trabajo (BullMQ)
 
-| Cola                | Productor                                | Intentos y espera                 | Notas                                                                |
-| ------------------- | ---------------------------------------- | --------------------------------- | -------------------------------------------------------------------- |
-| `maintenance`       | Programaciones del worker                | —                                 | Latido (30 s), barridos de campañas, aprobaciones y retención diaria |
-| `contact-import`    | Subida de CSV/XLSX                       | 3                                 | Streaming por lotes                                                  |
-| `document-process`  | Subida de documentos                     | 3, exponencial                    | Antivirus opcional → PDF → miniatura → texto                         |
-| `campaign-dispatch` | Envío o programación de una campaña      | 5, exponencial                    | jobId por versión de campaña (idempotente)                           |
-| `email-send`        | Despacho                                 | 6, exponencial 30 s (tope 30 min) | Límites por proveedor en Redis; aplazamiento sin gastar intentos     |
-| `provider-events`   | Webhooks entrantes de proveedores        | 5, exponencial                    | jobId por evento (deduplicado)                                       |
-| `system-mail`       | Invitaciones, recuperación, aprobaciones | 5, exponencial 15 s               | SMTP de plataforma                                                   |
-| `automation-run`    | Programación, «Ejecutar ahora» y eventos | 3, exponencial 1 min              | Clave idempotente por fecha, ejecución manual o id de evento         |
-| `outbound-webhook`  | Eventos de negocio (`EventPublisher`)    | 8, exponencial 1 min (≈ 2 h)      | Un job por entrega; un destino caído se registra como aviso          |
+| Cola                | Productor                                | Intentos y espera                 | Notas                                                                                                         |
+| ------------------- | ---------------------------------------- | --------------------------------- | ------------------------------------------------------------------------------------------------------------- |
+| `maintenance`       | Programaciones del worker                | —                                 | Latido (30 s), barridos de campañas, aprobaciones, retención diaria y revalidación de dominios de seguimiento |
+| `contact-import`    | Subida de CSV/XLSX                       | 3                                 | Streaming por lotes                                                                                           |
+| `document-process`  | Subida de documentos                     | 3, exponencial                    | Antivirus opcional → PDF → miniatura → texto                                                                  |
+| `campaign-dispatch` | Envío o programación de una campaña      | 5, exponencial                    | jobId por versión de campaña (idempotente)                                                                    |
+| `email-send`        | Despacho                                 | 6, exponencial 30 s (tope 30 min) | Límites por proveedor en Redis; aplazamiento sin gastar intentos                                              |
+| `provider-events`   | Webhooks entrantes de proveedores        | 5, exponencial                    | jobId por evento (deduplicado)                                                                                |
+| `system-mail`       | Invitaciones, recuperación, aprobaciones | 5, exponencial 15 s               | SMTP de plataforma                                                                                            |
+| `automation-run`    | Programación, «Ejecutar ahora» y eventos | 3, exponencial 1 min              | Clave idempotente por fecha, ejecución manual o id de evento                                                  |
+| `outbound-webhook`  | Eventos de negocio (`EventPublisher`)    | 8, exponencial 1 min (≈ 2 h)      | Un job por entrega; un destino caído se registra como aviso                                                   |
 
 Los trabajos que agotan sus intentos se conservan como fallidos y se pueden reintentar o descartar desde **Administración › Colas** (`/admin/queues`, solo SUPER_ADMIN; queda auditado).
 
@@ -303,51 +303,53 @@ Los trabajos que agotan sus intentos se conservan como fallidos y se pueden rein
 
 ## 6. Seguridad (OWASP)
 
-| Control                 | Implementación                                                                                                                                         |
-| ----------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------ |
-| CSP con nonce           | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción               |
-| Cabeceras               | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                             |
-| Secretos                | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                           |
-| Logs                    | Redacción de credenciales; la readiness no expone errores                                                                                              |
-| TraceId                 | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                        |
-| Docker                  | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                     |
-| Cadena de suministro    | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                        |
-| Autenticación (A07)     | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                      |
-| Control de acceso (A01) | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                     |
-| IDOR                    | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                          |
-| CSRF                    | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                          |
-| Redirección abierta     | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                          |
-| Inyección (A03)         | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                      |
-| Subidas                 | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas          |
-| API pública             | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                            |
-| Auditoría (A09)         | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                        |
-| Plantillas (A03)        | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea          |
-| HTML de usuario (XSS)   | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`        |
-| Documentos              | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp                  |
-| SSRF en conversiones    | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                     |
-| Archivos servidos       | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                           |
-| URL públicas            | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                                 |
-| Credenciales            | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                       |
-| SSRF en proveedores     | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com`    |
-| Redirección abierta     | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                         |
-| Webhooks                | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                      |
-| Bajas y privacidad      | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                      |
-| Recuperación de cuenta  | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                         |
-| Envíos de prueba        | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                   |
-| Inyección de prompts    | Fuentes como datos `<source>`; lista blanca de enlaces citables; traducción por unidades; la IA nunca envía; aprobación humana por defecto (ADR 0011)  |
-| SSRF en fuentes de IA   | `safeFetch`: solo hosts públicos y puertos 80/443, DNS fijado, metadatos bloqueados siempre, 3 redirecciones, 2 MB, 10 s; XML sin DOCTYPE              |
-| Claves de IA            | Cifradas con AAD por fila; nunca vuelven a la interfaz; no se reenvían a otro origen en redirecciones                                                  |
-| Coste de IA             | Presupuesto mensual por tenant, tope de la plataforma, 30 peticiones por hora y usuario, registro de cada llamada                                      |
-| Aprobaciones            | Sesión + POST (los escáneres de enlaces no deciden); solo aprobadores con permiso de envío; versión de plantilla congelada                             |
-| Privacidad con IA       | Al modelo solo llegan las fuentes y los textos de la tarea; nunca la lista de contactos (comprobado en la E2E)                                         |
-| Texto alternativo (IA)  | Imagen de la biblioteca o URL https con `safeFetch` (5 MB, sin SVG), reescalada sin metadatos y nunca guardada; salida sin enlaces ni Markdown         |
-| Webhooks salientes      | Destino validado con `safeFetch` sin redirecciones; firma HMAC con timestamp; secreto cifrado y mostrado una vez; auto-desactivación (ADR 0014)        |
-| API de eventos          | Ámbito `events:write`, cuerpo máx. 16 KB, nombre de evento con formato restringido, disparo idempotente por `id`; datos tratados como fuente no fiable |
-| PWA                     | El service worker nunca guarda páginas, API ni datos de tenants (solo recursos estáticos); CSP propia para `/sw.js` (ADR 0013)                         |
-| RGPD                    | Supresión del contacto con anonimización de entregas; retención de 13 meses / 90 / 30 días según la tabla; IP como HMAC (ADR 0015)                     |
-| Rotación de claves      | `pnpm secrets:rotate` recifra proveedores, IA y webhooks con escritura condicional; informa de filas ilegibles                                         |
-| Antivirus               | ClamAV opcional por `INSTREAM`; malware → original borrado y documento `FAILED`; antivirus caído → no se procesa (se reintenta)                        |
-| Panel de plataforma     | `/admin/*` solo para SUPER_ADMIN (comprobado en layout, acción y caso de uso); reintentos y descartes de jobs auditados                                |
+| Control                  | Implementación                                                                                                                                                                                                   |
+| ------------------------ | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| CSP con nonce            | `script-src 'self' 'nonce-…' 'strict-dynamic'`, `object-src 'none'`, `frame-ancestors 'none'`, `upgrade-insecure-requests` en producción                                                                         |
+| Cabeceras                | HSTS, `X-Content-Type-Options`, `Referrer-Policy`, `X-Frame-Options`, `Permissions-Policy`                                                                                                                       |
+| Secretos                 | Solo en `.env` (no versionado), generados aleatoriamente y validados con Zod                                                                                                                                     |
+| Logs                     | Redacción de credenciales; la readiness no expone errores                                                                                                                                                        |
+| TraceId                  | Solo se acepta un valor entrante con formato seguro; si no, se genera uno nuevo                                                                                                                                  |
+| Docker                   | Procesos como usuario `node` y puertos de desarrollo solo en `127.0.0.1`; en producción solo Caddy publica puertos                                                                                               |
+| Cadena de suministro     | `allowBuilds` explícito, antigüedad mínima de publicación de 24 h, `pnpm audit` sin High ni Critical y `overrides` documentados                                                                                  |
+| Autenticación (A07)      | argon2id, bloqueo tras 5 intentos, límite IP+email en Redis, mensajes genéricos, sesión JWT de 8 h revocable por `sessionVersion`                                                                                |
+| Control de acceso (A01)  | RBAC por tenant en cada caso de uso, aislamiento de datos en tres capas (ADR 0005), 404 sin revelar la existencia de otros tenants                                                                               |
+| IDOR                     | Ids de listas, etiquetas, temas y contactos validados contra el tenant antes de relacionarlos                                                                                                                    |
+| CSRF                     | Server Actions con comprobación de origen de Next.js; la subida de archivos (route handler) exige `Origin` del propio dominio                                                                                    |
+| Redirección abierta      | `callbackUrl` solo admite rutas internas (`safeRedirectPath`)                                                                                                                                                    |
+| Inyección (A03)          | Prisma parametrizado; segmentos compilados con columnas de lista blanca y valores como parámetros; `LIKE` con comodines escapados                                                                                |
+| Subidas                  | Límite de 20 MB y de subidas por hora, tipo real por bytes mágicos, claves S3 generadas por el sistema, informe CSV protegido contra fórmulas                                                                    |
+| API pública              | Claves con prefijo y SHA-256, _scopes_, caducidad y revocación; límite de 600 peticiones por minuto y clave                                                                                                      |
+| Auditoría (A09)          | `audit_logs` de solo inserción (trigger), sin datos personales en los metadatos                                                                                                                                  |
+| Plantillas (A03)         | LiquidJS sin acceso a archivos, solo propiedades propias, sin filtro `raw`, con límites; escape HTML en el cuerpo; asunto sin saltos de línea                                                                    |
+| HTML de usuario (XSS)    | sanitize-html con lista blanca de etiquetas, atributos, esquemas y CSS; batería de 39 vectores OWASP en tests; vista previa en `iframe sandbox`                                                                  |
+| Documentos               | Lista blanca por bytes mágicos (sin SVG ni ejecutables), 50 MB, 60 subidas por hora, `execFile` sin shell, límite de píxeles en sharp                                                                            |
+| SSRF en conversiones     | Chromium de Gotenberg sin JavaScript y con `--chromium-allow-list=^file:///tmp/.*`                                                                                                                               |
+| Archivos servidos        | `nosniff`, CSP `default-src 'none'; sandbox`, original siempre como adjunto, nombre de descarga ASCII seguro                                                                                                     |
+| URL públicas             | HMAC-SHA256 con prefijo de dominio y comparación en tiempo constante; un token manipulado devuelve 404                                                                                                           |
+| Credenciales             | AES-256-GCM con AAD `tenant:email_provider:id`, rotación por id de clave; nunca vuelven a la interfaz (ADR 0010)                                                                                                 |
+| SSRF en proveedores      | Host SMTP resuelto y validado (sin IP privadas, _link-local_ ni metadatos), conexión a la IP fijada; certificados SNS solo de `sns.*.amazonaws.com`                                                              |
+| Redirección abierta      | Los clics redirigen a la URL guardada en `campaign_links`, nunca a un parámetro de la petición                                                                                                                   |
+| Webhooks                 | Firma Svix o SNS verificada, tolerancia de 5 min, deduplicación por id de evento, token de endpoint aleatorio, cuerpo máx. 256 KB                                                                                |
+| Bajas y privacidad       | RFC 8058 _one-click_ por POST; GET solo muestra preferencias; email enmascarado en páginas públicas; IP guardada como HMAC diario                                                                                |
+| Recuperación de cuenta   | Token aleatorio guardado como hash, 1 h, un solo uso; respuesta neutra (no revela si existe la cuenta); 5 solicitudes por hora                                                                                   |
+| Envíos de prueba         | Máximo 5 direcciones y 20 envíos por hora y usuario, sin seguimiento                                                                                                                                             |
+| Inyección de prompts     | Fuentes como datos `<source>`; lista blanca de enlaces citables; traducción por unidades; la IA nunca envía; aprobación humana por defecto (ADR 0011)                                                            |
+| SSRF en fuentes de IA    | `safeFetch`: solo hosts públicos y puertos 80/443, DNS fijado, metadatos bloqueados siempre, 3 redirecciones, 2 MB, 10 s; XML sin DOCTYPE                                                                        |
+| Claves de IA             | Cifradas con AAD por fila; nunca vuelven a la interfaz; no se reenvían a otro origen en redirecciones                                                                                                            |
+| Coste de IA              | Presupuesto mensual por tenant, tope de la plataforma, 30 peticiones por hora y usuario, registro de cada llamada                                                                                                |
+| Aprobaciones             | Sesión + POST (los escáneres de enlaces no deciden); solo aprobadores con permiso de envío; versión de plantilla congelada                                                                                       |
+| Privacidad con IA        | Al modelo solo llegan las fuentes y los textos de la tarea; nunca la lista de contactos (comprobado en la E2E)                                                                                                   |
+| Texto alternativo (IA)   | Imagen de la biblioteca o URL https con `safeFetch` (5 MB); formato real verificado (solo JPEG, PNG, GIF o WebP) antes de decodificar; reescalada sin metadatos y nunca guardada; salida sin enlaces ni Markdown |
+| Webhooks salientes       | Destino validado con `safeFetch` sin redirecciones ni credenciales en la URL; firma HMAC con timestamp; secreto cifrado y mostrado una vez; 30 pruebas por hora y usuario; auto-desactivación (ADR 0014)         |
+| API de eventos           | Ámbito `events:write`, cuerpo máx. 16 KB, nombre de evento con formato restringido, disparo idempotente por `id`; datos tratados como fuente no fiable                                                           |
+| PWA                      | El service worker nunca guarda páginas, API ni datos de tenants (solo recursos estáticos); CSP propia para `/sw.js` (ADR 0013)                                                                                   |
+| RGPD                     | Supresión del contacto con anonimización de entregas; retención de 13 meses / 90 / 30 días según la tabla; IP como HMAC (ADR 0015)                                                                               |
+| Rotación de claves       | `pnpm secrets:rotate` recifra proveedores, IA y webhooks con escritura condicional; informa de filas ilegibles                                                                                                   |
+| Antivirus                | ClamAV opcional por `INSTREAM`; malware → original borrado y documento `FAILED`; antivirus caído → no se procesa (se reintenta)                                                                                  |
+| Panel de plataforma      | `/admin/*` solo para SUPER_ADMIN (comprobado en layout, acción y caso de uso); reintentos y descartes de jobs auditados                                                                                          |
+| Tamaño de las peticiones | Los cuerpos JSON de la API, eventos y webhooks entrantes se leen por streaming con tope (también sin `Content-Length`, peticiones _chunked_); Caddy limita a 60 MB                                               |
+| Dominios de seguimiento  | Verificación por CNAME hacia `APP_URL` y revalidación diaria; Caddy solo emite certificados para dominios verificados (`/api/tls/allowed`, 404 desde fuera) y en ellos solo sirve `/trk/*` (ADR 0016)            |
 
 Decisión sobre estilos: `style-src` permite `'unsafe-inline'` porque MUI, Emotion y React usan atributos `style`. El riesgo de inyección de estilos es bajo frente al de scripts, que sí exige nonce.
 
@@ -490,4 +492,5 @@ El test del matcher del proxy compila el patrón con la misma función que usa N
 | Un evento no dispara nada (`triggered: []`)                   | Ninguna automatización activa con ese evento                         | Escribir el evento en la automatización y activarla                               |
 | Documento en `FAILED` con `SCAN_UNAVAILABLE`                  | ClamAV no responde (o aún descarga firmas)                           | Esperar a que `clamav` esté _healthy_ y pulsar **Reintentar**                     |
 | `pnpm secrets:rotate` termina con código 2                    | Filas cifradas con una clave retirada                                | Volver a introducir esas credenciales; no retirar claves con filas pendientes     |
+| Un dominio de seguimiento no obtiene certificado              | No verificado, tenant suspendido o puerto 80 cerrado (ACME)          | Verificar el CNAME en Configuración › General; abrir el puerto 80 en la VM        |
 | La PWA no aparece como instalable                             | Sin HTTPS (salvo `localhost`) o build de desarrollo                  | Servir con Caddy y TLS; el service worker solo se registra en producción          |

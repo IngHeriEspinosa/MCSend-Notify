@@ -6,6 +6,7 @@
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import { z } from 'zod';
 import type { TrackingLinks } from '@/core/campaigns/ports';
+import type { TrackingHosts } from './tracking-host-directory';
 
 const DOMAIN = 'mcsn-track-v1';
 const SIGNATURE_BYTES = 16;
@@ -22,23 +23,29 @@ export type TrackingPayload = z.infer<typeof payloadSchema>;
 export class HmacTrackingLinks implements TrackingLinks {
   private readonly baseUrl: string;
 
+  /** `hosts`: dominio de seguimiento propio de cada tenant (si no, siempre `baseUrl`). */
   constructor(
     private readonly secret: string,
     baseUrl: string,
+    private readonly hosts?: TrackingHosts,
   ) {
     this.baseUrl = baseUrl.replace(/\/+$/, '');
   }
 
+  private base(tenantId: string): string {
+    return this.hosts?.baseUrlFor(tenantId) ?? this.baseUrl;
+  }
+
   openUrl(tenantId: string, deliveryId: string): string {
-    return `${this.baseUrl}/trk/o/${this.sign({ p: 'o', t: tenantId, d: deliveryId })}`;
+    return `${this.base(tenantId)}/trk/o/${this.sign({ p: 'o', t: tenantId, d: deliveryId })}`;
   }
 
   clickUrl(tenantId: string, deliveryId: string, linkId: string): string {
-    return `${this.baseUrl}/trk/c/${this.sign({ p: 'c', t: tenantId, d: deliveryId, l: linkId })}`;
+    return `${this.base(tenantId)}/trk/c/${this.sign({ p: 'c', t: tenantId, d: deliveryId, l: linkId })}`;
   }
 
   unsubscribeUrl(tenantId: string, deliveryId: string): string {
-    return `${this.baseUrl}/trk/u/${this.sign({ p: 'u', t: tenantId, d: deliveryId })}`;
+    return `${this.base(tenantId)}/trk/u/${this.sign({ p: 'u', t: tenantId, d: deliveryId })}`;
   }
 
   /** El centro de preferencias usa el mismo token de baja (misma entrega, mismo propósito). */
@@ -46,8 +53,20 @@ export class HmacTrackingLinks implements TrackingLinks {
     return this.unsubscribeUrl(tenantId, deliveryId);
   }
 
+  /** Descarga de un documento en el dominio de la plataforma o en uno de seguimiento verificado. */
   isDocumentDownload(url: string): boolean {
-    return url.startsWith(`${this.baseUrl}/trk/d/`);
+    if (url.startsWith(`${this.baseUrl}/trk/d/`)) return true;
+    if (!this.hosts) return false;
+    try {
+      const parsed = new URL(url);
+      return (
+        parsed.protocol === 'https:' &&
+        parsed.pathname.startsWith('/trk/d/') &&
+        this.hosts.isTrackingHost(parsed.host)
+      );
+    } catch {
+      return false;
+    }
   }
 
   verify(token: string, purpose: TrackingPayload['p']): TrackingPayload | null {

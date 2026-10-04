@@ -528,6 +528,28 @@ sequenceDiagram
   - `PlatformAiUsageUseCase`, sobre `PlatformAiUsageRepository` (agregado por tenant, sin ámbito de tenant y solo para SUPER_ADMIN).
 - **Interfaz:** rutas `/[locale]/admin/{tenants,queues,ai-usage}` con un layout que exige SUPER_ADMIN. La comprobación se repite en las acciones y en los casos de uso (defensa en profundidad).
 
+## 21. Dominios de seguimiento propios
+
+```mermaid
+sequenceDiagram
+  participant R as Destinatario
+  participant C as Caddy
+  participant A as App
+  participant DB as PostgreSQL
+  R->>C: GET https://clic.mcsupport.com/trk/c/{token}
+  alt primer acceso (sin certificado)
+    C->>A: GET /api/tls/allowed?domain=clic.mcsupport.com
+    A->>DB: ¿dominio verificado de un tenant activo?
+    A-->>C: 200 (o 404: no se emite)
+  end
+  C->>A: /trk/* (otras rutas → 308 a APP_DOMAIN)
+  A-->>R: 302 al destino del clic
+```
+
+- **Reglas (`core/tenants/tracking-domain`):** normalización, verificación por CNAME, alta, baja, reverificación diaria y política de TLS bajo demanda. Los puertos son `TrackingDomainRepository` y `CnameResolver`.
+- **Directorio en memoria:** `TrackingHostDirectory` (infraestructura) da a los firmadores de enlaces la URL base de cada tenant sin consultar la base de datos por enlace.
+- **Detalle de las decisiones:** [ADR 0016](adr/0016-tracking-domains.md).
+
 ## 20. Texto alternativo con IA
 
 ```mermaid

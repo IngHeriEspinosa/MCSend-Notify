@@ -13,7 +13,12 @@ import {
   ScriptedWebhookSender,
 } from '@tests/fakes/webhook.fakes';
 import type { TenantContext } from '@/core/shared/tenant-context';
-import { MAX_WEBHOOK_ENDPOINTS, WEBHOOK_AUTO_DISABLE_AFTER, webhookSecretAad } from './webhook';
+import {
+  MAX_WEBHOOK_ENDPOINTS,
+  WEBHOOK_AUTO_DISABLE_AFTER,
+  webhookEndpointInputSchema,
+  webhookSecretAad,
+} from './webhook';
 import {
   DeliverWebhookUseCase,
   isWebhookRetryError,
@@ -240,5 +245,32 @@ describe('entrega', () => {
       status: 'FAILED',
       error: 'ENDPOINT_DISABLED',
     });
+  });
+
+  it('un secreto ilegible (clave retirada) deja la entrega FAILED sin enviar ni reintentar', async () => {
+    const { delivery, endpointId } = await pendingDelivery();
+    await endpoints.update(ownerContext, endpointId, { secretEnc: 'k0.dato.ilegible' });
+    await deliver().execute(systemCtx, delivery.id, { attempt: 1, finalAttempt: false });
+    expect(sender.calls).toEqual([]);
+    expect(deliveries.deliveries.get(delivery.id)).toMatchObject({
+      status: 'FAILED',
+      error: 'SECRET_UNREADABLE',
+    });
+  });
+});
+
+describe('validación de destinos', () => {
+  it('rechaza URL con credenciales y esquemas distintos de http(s)', () => {
+    const base = { description: null, events: ['campaign.sent'], enabled: true };
+    expect(
+      webhookEndpointInputSchema.safeParse({ ...base, url: 'https://hooks.example.com/x' }).success,
+    ).toBe(true);
+    expect(
+      webhookEndpointInputSchema.safeParse({ ...base, url: 'https://user:pass@hooks.example.com' })
+        .success,
+    ).toBe(false);
+    expect(
+      webhookEndpointInputSchema.safeParse({ ...base, url: 'ftp://hooks.example.com' }).success,
+    ).toBe(false);
   });
 });

@@ -4,6 +4,7 @@
  * cuanto el evento queda guardado y encolado: el worker aplica los cambios.
  */
 import type { NextRequest } from 'next/server';
+import { isBodyTooLargeError, readBodyText } from '@/common/utils/read-body';
 import { isDomainError } from '@/core/shared/domain-error';
 import { getLogger } from '@/infrastructure/container';
 import { useCases } from '@/infrastructure/use-case-factory';
@@ -20,11 +21,14 @@ export async function POST(
   if (!/^[A-Za-z0-9_-]{16,128}$/.test(endpointToken)) {
     return Response.json({ error: 'not_found' }, { status: 404 });
   }
-  if (Number(request.headers.get('content-length') ?? '0') > MAX_BODY_BYTES) {
-    return Response.json({ error: 'too_large' }, { status: 413 });
+  let body: string;
+  try {
+    // Sin autenticación previa: el límite se aplica al leer el stream, no solo a Content-Length.
+    body = await readBodyText(request, MAX_BODY_BYTES);
+  } catch (error) {
+    if (isBodyTooLargeError(error)) return Response.json({ error: 'too_large' }, { status: 413 });
+    throw error;
   }
-  const body = await request.text();
-  if (body.length > MAX_BODY_BYTES) return Response.json({ error: 'too_large' }, { status: 413 });
   const headers = Object.fromEntries(
     [...request.headers.entries()].map(([key, value]) => [key.toLowerCase(), value]),
   );

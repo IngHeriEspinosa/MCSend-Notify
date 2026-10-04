@@ -4,11 +4,31 @@
 # CADDY_TLS=internal → CA local de Caddy (red interna o pruebas locales).
 # Las cabeceras de seguridad (CSP con nonce, HSTS, etc.) las pone la aplicación.
 
+{
+	# Dominios de seguimiento de las aplicaciones: el certificado se emite al primer acceso,
+	# solo si la app confirma que es un dominio verificado (evita emisiones abusivas).
+	on_demand_tls {
+		ask http://app:3000/api/tls/allowed
+	}
+}
+
 (tls-acme) {
 }
 
 (tls-internal) {
 	tls internal
+}
+
+(tls-ondemand-acme) {
+	tls {
+		on_demand
+	}
+}
+
+(tls-ondemand-internal) {
+	tls internal {
+		on_demand
+	}
 }
 
 {$APP_DOMAIN} {
@@ -18,9 +38,42 @@
 	# No revelar el servidor.
 	header -Server
 
+	# La consulta de TLS bajo demanda es solo para Caddy (red interna).
+	respond /api/tls/* 404
+
+	# Tope de cuerpo de petición (documentos de 50 MB + multipart). La app aplica además
+	# límites propios por endpoint al leer el stream.
+	request_body {
+		max_size 60MB
+	}
+
 	# El progreso de campañas usa Server-Sent Events: sin buffering.
 	reverse_proxy app:3000 {
 		flush_interval -1
+	}
+
+	log {
+		output stdout
+		format json
+	}
+}
+
+# Dominios de seguimiento propios (CNAME hacia APP_DOMAIN, ADR 0016). Solo se sirven los enlaces
+# de los correos (/trk/*); cualquier otra ruta redirige a la plataforma.
+https:// {
+	import tls-ondemand-{$CADDY_TLS:acme}
+	header -Server
+
+	request_body {
+		max_size 64KB
+	}
+
+	handle /trk/* {
+		reverse_proxy app:3000
+	}
+
+	handle {
+		redir https://{$APP_DOMAIN}{uri} 308
 	}
 
 	log {

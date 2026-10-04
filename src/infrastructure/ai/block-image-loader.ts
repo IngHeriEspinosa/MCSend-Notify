@@ -10,7 +10,7 @@
  */
 import sharp from 'sharp';
 import type { AiImage, ImageLoader } from '@/core/ai/ports';
-import type { DocumentRepository } from '@/core/documents/ports';
+import type { DocumentRecord } from '@/core/documents/document';
 import { DomainError } from '@/core/shared/domain-error';
 import type { ObjectStorage } from '@/core/shared/ports';
 import type { TenantContext } from '@/core/shared/tenant-context';
@@ -20,6 +20,7 @@ const MAX_BYTES = 5 * 1024 * 1024;
 const MAX_INPUT_PIXELS = 50_000_000;
 const MAX_EDGE = 1568;
 const RASTER_TYPES = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'] as const;
+const RASTER_FORMATS = new Set(['jpeg', 'png', 'gif', 'webp']);
 
 function unavailable(message: string): DomainError {
   return new DomainError('VALIDATION', message, { reason: 'IMAGE_UNAVAILABLE' });
@@ -28,7 +29,12 @@ function unavailable(message: string): DomainError {
 export class BlockImageLoader implements ImageLoader {
   constructor(
     private readonly deps: {
-      documents: Pick<DocumentRepository, 'findById'>;
+      documents: {
+        findById(
+          context: TenantContext,
+          documentId: string,
+        ): Promise<Pick<DocumentRecord, 'status' | 'thumbnailKey'> | null>;
+      };
       storage: Pick<ObjectStorage, 'getBytes'>;
       allowPrivateHosts: boolean;
     },
@@ -71,6 +77,15 @@ export class BlockImageLoader implements ImageLoader {
   }
 
   private async normalize(bytes: Uint8Array): Promise<AiImage> {
+    // El Content-Type lo declara el servidor remoto: se comprueba el formato real antes de
+    // decodificar (un SVG o un PDF disfrazados de PNG no llegan a procesarse).
+    const format = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS })
+      .metadata()
+      .then((metadata) => metadata.format)
+      .catch(() => undefined);
+    if (!format || !RASTER_FORMATS.has(format)) {
+      throw unavailable('El archivo no es una imagen JPEG, PNG, GIF o WebP');
+    }
     try {
       const data = await sharp(bytes, { limitInputPixels: MAX_INPUT_PIXELS, animated: false })
         .rotate()

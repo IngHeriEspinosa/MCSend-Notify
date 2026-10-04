@@ -13,6 +13,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, errorResponse } from '@/app/_server/api-guards';
+import { isBodyTooLargeError, readJsonBody } from '@/common/utils/read-body';
 import { automationEventSchema } from '@/core/automations/automation';
 import { isDomainError } from '@/core/shared/domain-error';
 import { getLogger } from '@/infrastructure/container';
@@ -25,15 +26,11 @@ const MAX_BODY_BYTES = 16 * 1024;
 export async function POST(request: NextRequest) {
   try {
     const context = await authenticateApiRequest(request);
-    if (Number(request.headers.get('content-length') ?? '0') > MAX_BODY_BYTES) {
-      return errorResponse('PAYLOAD_TOO_LARGE');
-    }
-    const body = await request.text();
-    if (Buffer.byteLength(body) > MAX_BODY_BYTES) return errorResponse('PAYLOAD_TOO_LARGE');
-    const input = automationEventSchema.parse(JSON.parse(body));
+    const input = automationEventSchema.parse(await readJsonBody(request, MAX_BODY_BYTES));
     const { triggered } = await useCases.automations().triggerEvent(context, input);
     return Response.json({ data: { event: input.event, triggered } }, { status: 202 });
   } catch (error) {
+    if (isBodyTooLargeError(error)) return errorResponse('PAYLOAD_TOO_LARGE');
     if (error instanceof SyntaxError) return errorResponse('BAD_REQUEST');
     if (isDomainError(error)) return errorResponse(error.code, error.details);
     if (error instanceof z.ZodError) {

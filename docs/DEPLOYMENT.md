@@ -98,6 +98,19 @@ docker compose -f compose.yaml -f compose.prod.yaml --profile security up -d --w
 - **Primer arranque:** ClamAV descarga sus firmas, lo que tarda varios minutos. Mientras no esté _healthy_, los documentos quedan en cola y se reintentan.
 - **Desactivar:** basta con vaciar `CLAMAV_HOST`.
 
+### Dominios de seguimiento de las aplicaciones
+
+Cada aplicación puede usar su propio dominio en los enlaces de los correos ([ADR 0016](adr/0016-tracking-domains.md)). No hay que tocar Caddy: el `Caddyfile` ya incluye el TLS bajo demanda.
+
+1. La aplicación crea en su DNS un **CNAME** de un subdominio (por ejemplo `clic.mcsupport.com`) hacia `APP_DOMAIN`.
+2. En **Configuración › General › Dominio de seguimiento**, guarda el dominio y pulsa **Verificar**.
+3. Al primer acceso, Caddy pide el certificado tras confirmar con la app (`/api/tls/allowed`) que el dominio está verificado.
+
+Requisitos:
+
+- con `CADDY_TLS=acme`, el **puerto 80** debe estar abierto, porque Let's Encrypt valida cada dominio por HTTP;
+- con `CADDY_TLS=internal`, los equipos deben confiar en la CA de Caddy, como en el dominio principal.
+
 ## 4. TLS interno (red corporativa o pruebas)
 
 Con `CADDY_TLS=internal`, Caddy firma el certificado con su propia CA local en lugar de Let's Encrypt. Sirve para una VM sin acceso desde Internet y para validar el despliegue en un equipo de desarrollo:

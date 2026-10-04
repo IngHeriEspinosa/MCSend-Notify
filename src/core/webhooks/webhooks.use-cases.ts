@@ -232,10 +232,23 @@ export class DeliverWebhookUseCase {
       tenant: context.tenantSlug,
       data: delivery.payload,
     });
-    const secret = this.deps.cipher.decrypt(
-      endpoint.secretEnc,
-      webhookSecretAad(context.tenantId, endpoint.id),
-    );
+    let secret: string;
+    try {
+      secret = this.deps.cipher.decrypt(
+        endpoint.secretEnc,
+        webhookSecretAad(context.tenantId, endpoint.id),
+      );
+    } catch {
+      // Clave de cifrado retirada o dato corrupto: reintentar no lo arregla (rotar el secreto sí).
+      await this.deps.deliveries.update(context, deliveryId, {
+        status: 'FAILED',
+        attempts: options.attempt,
+        responseStatus: null,
+        error: 'SECRET_UNREADABLE',
+        deliveredAt: null,
+      });
+      return;
+    }
     const result = await this.deps.sender.send(endpoint.url, body, secret, {
       eventId: delivery.eventId,
       eventType: delivery.eventType,

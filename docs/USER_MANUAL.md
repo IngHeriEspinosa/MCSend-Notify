@@ -480,6 +480,17 @@ La plataforma borra sola los datos de actividad antiguos:
 - eventos crudos de los proveedores: a los 90 días;
 - registro de webhooks: a los 30 días.
 
+### Dominio de seguimiento propio
+
+En **Configuración › General › Dominio de seguimiento** (propietarios y administradores) puedes hacer que los enlaces de tus correos usen un dominio de tu aplicación, por ejemplo `clic.mcsupport.com`, en lugar del de la plataforma. Los clientes ven enlaces de tu marca y los filtros de correo confían más en ellos.
+
+1. Elige un **subdominio** dedicado. El dominio principal (`mcsupport.com`) no sirve porque no admite CNAME.
+2. Pide a quien gestiona tu DNS que cree el registro **CNAME** que muestra la pantalla, hacia el dominio de la plataforma.
+3. Escribe el dominio, pulsa **Guardar y verificar** y, si aún no se ha propagado, vuelve más tarde y pulsa **Verificar** (puede tardar hasta 48 horas).
+4. Con el dominio **Verificado**, los correos nuevos lo usan. El centro de preferencias de baja sigue en el dominio de la plataforma.
+
+La plataforma comprueba el registro cada día; si desaparece, vuelve sola al dominio de la plataforma. **Quitar el dominio** hace que dejen de funcionar los enlaces de los correos ya enviados con él.
+
 ### Instalar la aplicación (PWA)
 
 En Chrome o Edge, el icono **Instalar** de la barra de direcciones (o el menú › **Instalar MC Send Notify**) la añade como aplicación del escritorio o del móvil. Por seguridad, los datos de tus aplicaciones no se guardan en el dispositivo:
@@ -497,40 +508,41 @@ Solo administradores de plataforma, desde el menú de usuario › **Administraci
 
 ## 12. Resolución de problemas
 
-| Problema                                                            | Qué hacer                                                                                             |
-| ------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------- |
-| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                                  |
-| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador                              |
-| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                                   |
-| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                                           |
-| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`)                |
-| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                                        |
-| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar                            |
-| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`                         |
-| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                                   |
-| Un documento se queda "En cola"                                     | El procesador de tareas no está en marcha                                                             |
-| Un documento muestra "Faltan herramientas de conversión"            | El procesador de tareas no tiene poppler: ejecútalo en Docker (`docker compose up -d worker`)         |
-| Un documento queda en "Error"                                       | Comprueba que el archivo se abre y no tiene contraseña; después pulsa **Reintentar**                  |
-| "Otra persona guardó la plantilla mientras la editabas"             | Recarga la página: verás la última versión y podrás volver a aplicar tus cambios                      |
-| "Contraste insuficiente" al guardar la marca                        | Elige un color más oscuro para los enlaces o cambia el color de los botones                           |
-| La vista previa dice que hay campos incompletos                     | Revisa los bloques: los botones necesitan un enlace https y las imágenes, texto alternativo           |
-| **Probar conexión** falla con un error de autenticación             | Revisa usuario y contraseña, o la clave de API; en Microsoft 365, que la aplicación tenga `Mail.Send` |
-| Una campaña se pausó sola                                           | El proveedor rechazó las credenciales: corrígelas, **Probar conexión** y **Reanudar**                 |
-| Una campaña programada no sale                                      | El procesador de tareas no está en marcha (`docker compose up -d worker`)                             |
-| El número de destinatarios es menor de lo esperado                  | Se excluyen bajas, rebotes, quejas, supresiones y bajas del tema elegido                              |
-| Los correos llegan a spam                                           | Corrige SPF, DKIM y DMARC del remitente (**Comprobar DNS**) y reduce los envíos por segundo           |
-| No llega el correo de recuperación o de invitación                  | Revisa spam; si no está, el correo del sistema no está configurado: avisa al equipo técnico           |
-| No aparecen los botones de IA                                       | La IA no está configurada o tu rol no la permite; pide a un administrador que la active               |
-| «Se agotó el presupuesto de IA de este mes»                         | Un administrador puede ampliar el presupuesto en Configuración › Inteligencia artificial              |
-| «Una de las URL no está permitida»                                  | Usa una página pública (http o https); las direcciones internas se bloquean por seguridad             |
-| Una ejecución aparece como «Omitida (sin novedades)»                | No había novedades nuevas en el periodo; publícalas o desactiva esa opción                            |
-| «La plantilla cambió mientras la revisabas»                         | Recarga la aprobación y revisa la versión actual antes de aprobar                                     |
-| No recibo el correo de aprobación                                   | Comprueba que eres aprobador de la automatización y revisa spam; también aparece en **Aprobaciones**  |
-| Un webhook aparece como **Desactivado**                             | Falló 20 veces seguidas: corrige el receptor, edítalo y márcalo como activo                           |
-| Las entregas de un webhook muestran `BLOCKED`                       | La URL apunta a una red privada; usa una dirección pública                                            |
-| Un evento enviado a la API no genera nada                           | Ninguna automatización activa tiene ese evento; revisa el nombre exacto                               |
-| Un documento muestra «El antivirus detectó contenido malicioso»     | El archivo se eliminó por seguridad; súbelo de nuevo desde una copia limpia                           |
-| «No se pudo obtener la imagen» al generar el texto alternativo      | La URL debe ser https pública y apuntar a un JPEG, PNG, GIF o WebP de hasta 5 MB                      |
-| No aparece la opción de instalar la aplicación                      | Necesita HTTPS y un navegador compatible (Chrome, Edge); en Firefox no está disponible                |
+| Problema                                                            | Qué hacer                                                                                                  |
+| ------------------------------------------------------------------- | ---------------------------------------------------------------------------------------------------------- |
+| "Email o contraseña incorrectos"                                    | Revisa los datos. Tras 5 intentos, espera 15 minutos                                                       |
+| "Tu cuenta de Microsoft no tiene acceso"                            | Tu dominio no está en la lista permitida; pide acceso a un administrador                                   |
+| No ves una aplicación                                               | Pide a un propietario o administrador que te invite                                                        |
+| La página muestra 404 en una aplicación                             | No eres miembro de esa aplicación o el enlace es incorrecto                                                |
+| Una importación se queda "En cola"                                  | El procesador de tareas no está en marcha (`pnpm dev:worker` o el contenedor `worker`)                     |
+| "Solo se admiten archivos CSV o XLSX válidos"                       | Guarda el archivo como CSV UTF-8 o como libro de Excel (.xlsx)                                             |
+| El estado muestra `database: down`, `redis: down` o `storage: down` | Ejecuta `docker compose up -d postgres redis storage` y vuelve a comprobar                                 |
+| `pnpm setup` falla con "port is already allocated"                  | Otro proyecto usa ese puerto: cámbialo en `compose.override.yaml` y en `.env`                              |
+| La construcción de Docker falla con errores de certificado          | Sigue las instrucciones de `docker/certs/README.md`                                                        |
+| Un documento se queda "En cola"                                     | El procesador de tareas no está en marcha                                                                  |
+| Un documento muestra "Faltan herramientas de conversión"            | El procesador de tareas no tiene poppler: ejecútalo en Docker (`docker compose up -d worker`)              |
+| Un documento queda en "Error"                                       | Comprueba que el archivo se abre y no tiene contraseña; después pulsa **Reintentar**                       |
+| "Otra persona guardó la plantilla mientras la editabas"             | Recarga la página: verás la última versión y podrás volver a aplicar tus cambios                           |
+| "Contraste insuficiente" al guardar la marca                        | Elige un color más oscuro para los enlaces o cambia el color de los botones                                |
+| La vista previa dice que hay campos incompletos                     | Revisa los bloques: los botones necesitan un enlace https y las imágenes, texto alternativo                |
+| **Probar conexión** falla con un error de autenticación             | Revisa usuario y contraseña, o la clave de API; en Microsoft 365, que la aplicación tenga `Mail.Send`      |
+| Una campaña se pausó sola                                           | El proveedor rechazó las credenciales: corrígelas, **Probar conexión** y **Reanudar**                      |
+| Una campaña programada no sale                                      | El procesador de tareas no está en marcha (`docker compose up -d worker`)                                  |
+| El número de destinatarios es menor de lo esperado                  | Se excluyen bajas, rebotes, quejas, supresiones y bajas del tema elegido                                   |
+| Los correos llegan a spam                                           | Corrige SPF, DKIM y DMARC del remitente (**Comprobar DNS**) y reduce los envíos por segundo                |
+| No llega el correo de recuperación o de invitación                  | Revisa spam; si no está, el correo del sistema no está configurado: avisa al equipo técnico                |
+| No aparecen los botones de IA                                       | La IA no está configurada o tu rol no la permite; pide a un administrador que la active                    |
+| «Se agotó el presupuesto de IA de este mes»                         | Un administrador puede ampliar el presupuesto en Configuración › Inteligencia artificial                   |
+| «Una de las URL no está permitida»                                  | Usa una página pública (http o https); las direcciones internas se bloquean por seguridad                  |
+| Una ejecución aparece como «Omitida (sin novedades)»                | No había novedades nuevas en el periodo; publícalas o desactiva esa opción                                 |
+| «La plantilla cambió mientras la revisabas»                         | Recarga la aprobación y revisa la versión actual antes de aprobar                                          |
+| No recibo el correo de aprobación                                   | Comprueba que eres aprobador de la automatización y revisa spam; también aparece en **Aprobaciones**       |
+| Un webhook aparece como **Desactivado**                             | Falló 20 veces seguidas: corrige el receptor, edítalo y márcalo como activo                                |
+| Las entregas de un webhook muestran `BLOCKED`                       | La URL apunta a una red privada; usa una dirección pública                                                 |
+| Un evento enviado a la API no genera nada                           | Ninguna automatización activa tiene ese evento; revisa el nombre exacto                                    |
+| Un documento muestra «El antivirus detectó contenido malicioso»     | El archivo se eliminó por seguridad; súbelo de nuevo desde una copia limpia                                |
+| «No se pudo obtener la imagen» al generar el texto alternativo      | La URL debe ser https pública y apuntar a un JPEG, PNG, GIF o WebP de hasta 5 MB                           |
+| El dominio de seguimiento queda «Sin verificar»                     | Revisa que el CNAME apunte exactamente al dominio indicado y espera a que se propague; luego **Verificar** |
+| No aparece la opción de instalar la aplicación                      | Necesita HTTPS y un navegador compatible (Chrome, Edge); en Firefox no está disponible                     |
 
 Si el problema persiste, contacta con el equipo de desarrollo. Indica el **código de seguimiento** que muestran los errores inesperados, o el `x-trace-id` de las cabeceras de la respuesta. Ambos permiten localizar la operación en los logs.

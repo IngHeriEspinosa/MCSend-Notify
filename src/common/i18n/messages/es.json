@@ -124,7 +124,9 @@
       "BLOCKING_ISSUES": "La campaña tiene errores que impiden el envío.",
       "UNEXPECTED": "Error inesperado durante la ejecución.",
       "WEBHOOK_LIMIT": "Se alcanzó el máximo de 10 destinos de webhook.",
-      "IMAGE_UNAVAILABLE": "No se pudo obtener la imagen: comprueba que la URL sea https pública y apunte a un JPEG, PNG, GIF o WebP de hasta 5 MB, o que el documento esté listo."
+      "IMAGE_UNAVAILABLE": "No se pudo obtener la imagen: comprueba que la URL sea https pública y apunte a un JPEG, PNG, GIF o WebP de hasta 5 MB, o que el documento esté listo.",
+      "TRACKING_DOMAIN_INVALID": "Escribe un subdominio público válido, por ejemplo clic.tuempresa.com (sin https:// ni rutas). No se admiten IP ni el dominio de la plataforma.",
+      "TRACKING_DOMAIN_TAKEN": "Ese dominio ya lo usa otra aplicación."
     }
   },
   "Auth": {
@@ -1410,6 +1412,32 @@
       "PENDING": "Reintentando",
       "SUCCEEDED": "Entregado",
       "FAILED": "Fallido"
+    }
+  },
+  "TrackingDomain": {
+    "title": "Dominio de seguimiento",
+    "subtitle": "Usa un dominio de tu aplicación en los enlaces de los correos (aperturas, clics, bajas, miniaturas y descargas). Mejora la confianza y la entregabilidad.",
+    "domain": "Dominio",
+    "domainHint": "Usa un subdominio dedicado y crea en tu DNS un registro CNAME hacia {target}.",
+    "save": "Guardar y verificar",
+    "verified": "Verificado",
+    "pending": "Sin verificar",
+    "checkedAt": "Última comprobación: {date}",
+    "inUse": "Los correos nuevos usan este dominio. Si el CNAME desaparece, se vuelve al dominio de la plataforma automáticamente.",
+    "notChecked": "Aún no se ha comprobado. Crea el registro y pulsa Verificar.",
+    "instructions": "Registro DNS que debes crear (la propagación puede tardar hasta 48 horas):",
+    "recordName": "Nombre",
+    "recordType": "Tipo",
+    "recordValue": "Valor",
+    "verify": "Verificar",
+    "remove": "Quitar dominio",
+    "removeTitle": "¿Quitar el dominio de seguimiento?",
+    "removeBody": "Los correos nuevos usarán el dominio de la plataforma. Los enlaces de correos ya enviados con este dominio dejarán de funcionar.",
+    "none": "Esta aplicación usa el dominio de la plataforma.",
+    "errors": {
+      "CNAME_MISSING": "No se encontró el registro CNAME. Créalo y vuelve a verificar.",
+      "CNAME_MISMATCH": "El CNAME apunta a otro destino. Debe apuntar al dominio de la plataforma.",
+      "DNS_ERROR": "No se pudo consultar el DNS. Inténtalo de nuevo en unos minutos."
     }
   }
 }

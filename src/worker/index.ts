@@ -13,6 +13,7 @@ import {
   getLogger,
   getObjectStorage,
   getSystemMailer,
+  getTrackingHostDirectory,
   getWorkerHeartbeat,
   shutdownContainer,
 } from '@/infrastructure/container';
@@ -67,6 +68,8 @@ async function main(): Promise<void> {
   const connection = createRedisConnection(env.REDIS_URL, 'worker');
 
   await getObjectStorage().ensureBucket();
+  // Los enlaces de los correos usan el dominio de seguimiento de cada tenant desde el primer envío.
+  await getTrackingHostDirectory().refresh();
 
   const maintenanceQueue = new Queue(QUEUE_NAMES.maintenance, { connection });
   const workers = [
@@ -81,6 +84,13 @@ async function main(): Promise<void> {
             const purged = await useCases.retention().execute();
             logger.info({ purged }, 'Retención de datos aplicada');
             return purged;
+          },
+        },
+        {
+          execute: async () => {
+            const result = await useCases.reverifyTrackingDomains().execute();
+            logger.info(result, 'Dominios de seguimiento revalidados');
+            await getTrackingHostDirectory().refresh();
           },
         },
       ),

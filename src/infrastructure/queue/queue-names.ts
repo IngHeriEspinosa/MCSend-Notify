@@ -25,4 +25,5 @@ export const MAINTENANCE_JOBS = {
   deliveriesRecover: 'deliveries-recover',
   approvalsExpire: 'approvals-expire',
   retentionSweep: 'retention-sweep',
+  trackingDomainsVerify: 'tracking-domains-verify',
 } as const;

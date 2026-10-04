@@ -22,7 +22,6 @@ import {
 } from '@/core/contacts/use-cases/audience.use-cases';
 import {
   CreateContactUseCase,
-  DeleteContactUseCase,
   GetContactUseCase,
   ListContactsUseCase,
   UpdateContactUseCase,
@@ -91,6 +90,11 @@ import { ManageQueuesUseCase, PlatformAiUsageUseCase } from '@/core/platform/pla
 import { ApplyRetentionUseCase, EraseContactUseCase } from '@/core/privacy/privacy';
 import { ManageBrandingUseCase } from '@/core/tenants/branding.use-cases';
 import {
+  ManageTrackingDomainUseCase,
+  ReverifyTrackingDomainsUseCase,
+  TrackingDomainTlsPolicy,
+} from '@/core/tenants/tracking-domain';
+import {
   DeliverWebhookUseCase,
   ManageWebhooksUseCase,
   WebhookPublisher,
@@ -133,8 +137,10 @@ import {
   getPublicAssetLinks,
   getSpreadsheetReader,
   getTenantClients,
+  getCnameResolver,
   getLogger,
   getMalwareScanner,
+  getTrackingDomainRepository,
   getQueueAdmin,
   getWebhookQueue,
   getWebhookSender,
@@ -556,11 +562,6 @@ export const useCases = {
   createContact: () => memoize('uc.createContact', () => new CreateContactUseCase(contactDeps())),
   updateContact: () => memoize('uc.updateContact', () => new UpdateContactUseCase(contactDeps())),
   upsertContact: () => memoize('uc.upsertContact', () => new UpsertContactUseCase(contactDeps())),
-  deleteContact: () =>
-    memoize(
-      'uc.deleteContact',
-      () => new DeleteContactUseCase(repositories.contacts(), repositories.audit()),
-    ),
   lists: () =>
     memoize(
       'uc.lists',
@@ -854,6 +855,36 @@ export const useCases = {
           cipher: getSecretCipher(),
           clock: systemClock,
         }),
+    ),
+
+  // Dominio de seguimiento propio
+  trackingDomain: () =>
+    memoize(
+      'uc.trackingDomain',
+      () =>
+        new ManageTrackingDomainUseCase({
+          domains: getTrackingDomainRepository(),
+          dns: getCnameResolver(),
+          audit: repositories.audit(),
+          clock: systemClock,
+          platformHost: new URL(getServerEnv().APP_URL).hostname,
+        }),
+    ),
+  reverifyTrackingDomains: () =>
+    memoize(
+      'uc.reverifyTrackingDomains',
+      () =>
+        new ReverifyTrackingDomainsUseCase({
+          domains: getTrackingDomainRepository(),
+          dns: getCnameResolver(),
+          clock: systemClock,
+          platformHost: new URL(getServerEnv().APP_URL).hostname,
+        }),
+    ),
+  trackingDomainTls: () =>
+    memoize(
+      'uc.trackingDomainTls',
+      () => new TrackingDomainTlsPolicy({ domains: getTrackingDomainRepository() }),
     ),
 
   // Privacidad (RGPD)

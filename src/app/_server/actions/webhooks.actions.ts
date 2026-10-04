@@ -3,7 +3,9 @@
 /** Server Actions de webhooks salientes (permiso `webhook:manage`, validado en el caso de uso). */
 import { z } from 'zod';
 import { tenantAction } from '@/app/_server/action-client';
+import { actorUserId } from '@/core/shared/tenant-context';
 import { webhookEndpointInputSchema } from '@/core/webhooks/webhook';
+import { getRateLimiter } from '@/infrastructure/container';
 import { useCases } from '@/infrastructure/use-case-factory';
 
 const idSchema = z.object({ id: z.uuid() });
@@ -29,9 +31,13 @@ export const deleteWebhookAction = tenantAction(idSchema, ({ id }, context) =>
   useCases.webhooks().delete(context, id),
 );
 
-export const sendWebhookTestAction = tenantAction(idSchema, ({ id }, context) =>
-  useCases.webhooks().sendTest(context, id),
-);
+/** Prueba manual: limitada para que la plataforma no sirva para saturar una URL ajena. */
+export const sendWebhookTestAction = tenantAction(idSchema, async ({ id }, context) => {
+  await getRateLimiter('webhookTest').consume(
+    `${context.tenantId}:${actorUserId(context) ?? 'anon'}`,
+  );
+  await useCases.webhooks().sendTest(context, id);
+});
 
 export const listWebhookDeliveriesAction = tenantAction(
   idSchema,

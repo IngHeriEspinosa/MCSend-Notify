@@ -25,7 +25,14 @@ export const WEBHOOK_AUTO_DISABLE_AFTER = 20;
 export const WEBHOOK_SIGNATURE_HEADER = 'x-mcsn-signature';
 
 export const webhookEndpointInputSchema = z.object({
-  url: z.url({ protocol: /^https?$/ }).max(500),
+  url: z
+    .url({ protocol: /^https?$/ })
+    .max(500)
+    // Sin credenciales en la URL: quedarían en claro en la base de datos y en la interfaz.
+    .refine((value) => {
+      const parsed = new URL(value);
+      return parsed.username === '' && parsed.password === '';
+    }, 'URL_CREDENTIALS'),
   description: z
     .string()
     .trim()

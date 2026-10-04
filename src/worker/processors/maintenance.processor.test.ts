@@ -44,3 +44,17 @@ describe('retención de datos', () => {
     expect(retention.execute).toHaveBeenCalledOnce();
   });
 });
+
+describe('dominios de seguimiento', () => {
+  it('el barrido diario revalida los dominios de seguimiento', async () => {
+    const trackingDomains = { execute: vi.fn().mockResolvedValue({ checked: 1, verified: 1 }) };
+    await createMaintenanceProcessor(
+      { beat: vi.fn() },
+      undefined,
+      undefined,
+      undefined,
+      trackingDomains,
+    )({ name: MAINTENANCE_JOBS.trackingDomainsVerify });
+    expect(trackingDomains.execute).toHaveBeenCalledOnce();
+  });
+});

@@ -4,6 +4,9 @@ import { getTranslations } from 'next-intl/server';
 import { requireTenant } from '@/app/_server/session';
 import { PageHeader } from '@/components/molecules/PageHeader';
 import { TenantSettingsForm } from '@/components/organisms/TenantSettingsForm';
+import { TrackingDomainSettings } from '@/components/organisms/TrackingDomainSettings';
+import { getServerEnv } from '@/common/config/env';
+import { useCases } from '@/infrastructure/use-case-factory';
 import { can } from '@/core/identity/permissions';
 
 export async function generateMetadata(): Promise<Metadata> {
@@ -17,6 +20,7 @@ export default async function GeneralSettingsPage({
   const { tenantSlug } = await params;
   const { tenant, context } = await requireTenant(tenantSlug);
   const t = await getTranslations('Settings');
+  const trackingDomain = await useCases.trackingDomain().get(context);
 
   return (
     <>
@@ -30,6 +34,13 @@ export default async function GeneralSettingsPage({
           timezone: tenant.timezone,
           postalAddress: tenant.postalAddress,
         }}
+      />
+      <TrackingDomainSettings
+        tenantSlug={tenantSlug}
+        initial={trackingDomain}
+        platformHost={new URL(getServerEnv().APP_URL).hostname}
+        canUpdate={can(context.actor, 'tenant:update')}
+        timeZone={tenant.timezone}
       />
     </>
   );

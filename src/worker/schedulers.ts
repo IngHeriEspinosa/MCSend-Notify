@@ -16,6 +16,9 @@ export const APPROVAL_EXPIRY_INTERVAL_MS = 60_000;
 /** Purga diaria de datos antiguos (retención RGPD) a las 03:30 UTC, fuera de horario. */
 export const RETENTION_SWEEP_PATTERN = '30 3 * * *';
 
+/** Revalidación diaria del CNAME de los dominios de seguimiento (04:00 UTC). */
+export const TRACKING_DOMAINS_PATTERN = '0 4 * * *';
+
 export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Promise<void> {
   await maintenanceQueue.upsertJobScheduler(
     'maintenance-heartbeat',
@@ -50,5 +53,13 @@ export async function registerMaintenanceSchedulers(maintenanceQueue: Queue): Pr
     'maintenance-retention-sweep',
     { pattern: RETENTION_SWEEP_PATTERN, tz: 'UTC' },
     { name: MAINTENANCE_JOBS.retentionSweep, opts: { removeOnComplete: true, removeOnFail: 100 } },
+  );
+  await maintenanceQueue.upsertJobScheduler(
+    'maintenance-tracking-domains-verify',
+    { pattern: TRACKING_DOMAINS_PATTERN, tz: 'UTC' },
+    {
+      name: MAINTENANCE_JOBS.trackingDomainsVerify,
+      opts: { removeOnComplete: true, removeOnFail: 100 },
+    },
   );
 }

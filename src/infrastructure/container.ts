@@ -13,6 +13,7 @@ import { HttpSourceFetcher } from './ai/http-source-fetcher';
 import { DefaultLanguageModelFactory } from './ai/language-model-factory';
 import { LinkifyLinkFinder } from './ai/linkify-link-finder';
 import { AesGcmSecretCipher } from './crypto/aes-gcm-secret-cipher';
+import { NodeCnameResolver } from './dns/cname-resolver';
 import { NodeDnsChecker } from './dns/dns-checker';
 import { MagicBytesFileInspector } from './documents/file-inspector';
 import {
@@ -35,6 +36,7 @@ import { createRedisConnection } from './queue/connection';
 import { AbsoluteAppLinks } from './notifications/app-links';
 import { SmtpSystemMailer } from './notifications/system-mailer';
 import { PrismaProviderConfigRepository } from './persistence/prisma/repositories/provider.prisma-repositories';
+import { PrismaTrackingDomainRepository } from './persistence/prisma/repositories/tracking-domain.prisma-repository';
 import {
   BullAutomationScheduler,
   BullCampaignQueue,
@@ -49,6 +51,7 @@ import { HtmlEmailCompiler } from './rendering/email-compiler';
 import { RateLimiter, RATE_LIMITS } from './security/rate-limiter';
 import { RedisSendThrottle } from './security/send-throttle';
 import { HmacPublicAssetLinks } from './security/signed-asset-links';
+import { TrackingHostDirectory } from './security/tracking-host-directory';
 import { HmacTrackingLinks } from './security/tracking-links';
 import { SafeFetchWebhookSender } from './webhooks/outbound-webhook-sender';
 import { DefaultProviderWebhookParser } from './webhooks/provider-webhook-parser';
@@ -204,8 +207,35 @@ export function getEmailCompiler(): HtmlEmailCompiler {
 export function getPublicAssetLinks(): HmacPublicAssetLinks {
   return memoize(
     'publicAssetLinks',
-    () => new HmacPublicAssetLinks(getSigningEnv().TRACKING_SIGNING_SECRET, getServerEnv().APP_URL),
+    () =>
+      new HmacPublicAssetLinks(
+        getSigningEnv().TRACKING_SIGNING_SECRET,
+        getServerEnv().APP_URL,
+        getTrackingHostDirectory(),
+      ),
   );
+}
+
+export function getTrackingDomainRepository(): PrismaTrackingDomainRepository {
+  return memoize('trackingDomainRepository', () => new PrismaTrackingDomainRepository(getPrisma()));
+}
+
+/** Dominios de seguimiento verificados en memoria (se refresca cada minuto). */
+export function getTrackingHostDirectory(): TrackingHostDirectory {
+  return memoize('trackingHostDirectory', () => {
+    const directory = new TrackingHostDirectory(
+      getTrackingDomainRepository(),
+      getServerEnv().APP_URL,
+      (error) =>
+        getLogger().warn({ err: error }, 'No se pudo refrescar los dominios de seguimiento'),
+    );
+    directory.start();
+    return directory;
+  });
+}
+
+export function getCnameResolver(): NodeCnameResolver {
+  return memoize('cnameResolver', () => new NodeCnameResolver());
 }
 
 export function getCampaignQueue(): BullCampaignQueue {
@@ -254,7 +284,12 @@ export function getDnsChecker(): NodeDnsChecker {
 export function getTrackingLinks(): HmacTrackingLinks {
   return memoize(
     'trackingLinks',
-    () => new HmacTrackingLinks(getSigningEnv().TRACKING_SIGNING_SECRET, getServerEnv().APP_URL),
+    () =>
+      new HmacTrackingLinks(
+        getSigningEnv().TRACKING_SIGNING_SECRET,
+        getServerEnv().APP_URL,
+        getTrackingHostDirectory(),
+      ),
   );
 }
 

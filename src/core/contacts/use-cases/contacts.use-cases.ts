@@ -169,26 +169,6 @@ export class UpdateContactUseCase {
   }
 }
 
-export class DeleteContactUseCase {
-  constructor(
-    private readonly contacts: ContactRepository,
-    private readonly audit: AuditLogger,
-  ) {}
-
-  async execute(context: TenantContext, contactId: string): Promise<void> {
-    assertCan(context, 'contact:delete');
-    if (!(await this.contacts.delete(context, contactId))) {
-      throw new DomainError('NOT_FOUND', 'Contacto inexistente');
-    }
-    // Sin datos personales en la auditoría: solo el identificador.
-    await this.audit.record(context, {
-      action: 'contact.deleted',
-      entityType: 'contact',
-      entityId: contactId,
-    });
-  }
-}
-
 /**
  * Alta o actualización por email (integraciones vía API). Las listas se añaden sin quitar
  * las existentes y el estado de suscripción no se modifica desde la API.

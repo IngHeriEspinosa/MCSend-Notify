@@ -53,6 +53,7 @@ Gestor multi-tenant de envío automático de correos para **Multicómputos**. Ca
 - **Webhooks salientes** firmados con HMAC: campaña enviada, aprobación solicitada, rebote, queja, baja y automatización fallida. Incluyen reintentos, registro de entregas, rotación del secreto y desactivación automática.
 - **Eventos de la API** (`/api/v1/events`) que disparan automatizaciones, por ejemplo al publicar una versión. Los datos del evento llegan a la IA como fuente.
 - **Texto alternativo de imágenes con IA** (visión) en el editor de plantillas.
+- **Dominio de seguimiento propio** por aplicación (CNAME verificado y certificados TLS bajo demanda con Caddy): los enlaces de los correos usan la marca de cada producto.
 - **PWA instalable:** solo se cachean recursos estáticos, nunca datos de los tenants, y hay página sin conexión en ES y EN.
 - **Privacidad (RGPD):**
   - supresión del contacto con anonimización de su historial;

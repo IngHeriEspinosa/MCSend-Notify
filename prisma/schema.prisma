@@ -152,22 +152,29 @@ enum DeliveryEventType {
 
 /// Cada aplicación o producto de Multicómputos (MCSupport, MCLog...) es un tenant aislado.
 model Tenant {
-  id                    String       @id @default(uuid(7)) @db.Uuid
-  slug                  String       @unique
-  name                  String
-  status                TenantStatus @default(ACTIVE)
-  defaultLocale         String       @default("es") @map("default_locale")
-  timezone              String       @default("America/Santo_Domingo")
+  id                       String       @id @default(uuid(7)) @db.Uuid
+  slug                     String       @unique
+  name                     String
+  status                   TenantStatus @default(ACTIVE)
+  defaultLocale            String       @default("es") @map("default_locale")
+  timezone                 String       @default("America/Santo_Domingo")
   /// { logoKey?, primary, accent, footerMd?, socialLinks? }
-  branding              Json         @default("{}")
+  branding                 Json         @default("{}")
   /// Dirección postal obligatoria en el pie de los correos (CAN-SPAM).
-  postalAddress         String?      @map("postal_address")
+  postalAddress            String?      @map("postal_address")
   /// { approvalThreshold?, attachmentMaxMb?, sendingWindow?, trackingDefaults? }
-  settings              Json         @default("{}")
-  onboardingStep        Int          @default(0) @map("onboarding_step")
-  onboardingCompletedAt DateTime?    @map("onboarding_completed_at")
-  createdAt             DateTime     @default(now()) @map("created_at")
-  updatedAt             DateTime     @updatedAt @map("updated_at")
+  settings                 Json         @default("{}")
+  onboardingStep           Int          @default(0) @map("onboarding_step")
+  onboardingCompletedAt    DateTime?    @map("onboarding_completed_at")
+  /// Dominio propio para los enlaces de seguimiento (CNAME hacia el dominio de la plataforma).
+  trackingDomain           String?      @unique @map("tracking_domain")
+  /// Se usa en los correos solo mientras está verificado; el barrido diario lo revalida.
+  trackingDomainVerifiedAt DateTime?    @map("tracking_domain_verified_at")
+  trackingDomainCheckedAt  DateTime?    @map("tracking_domain_checked_at")
+  /// Motivo de la última verificación fallida (CNAME_MISSING, CNAME_MISMATCH, DNS_ERROR).
+  trackingDomainError      String?      @map("tracking_domain_error")
+  createdAt                DateTime     @default(now()) @map("created_at")
+  updatedAt                DateTime     @updatedAt @map("updated_at")
 
   memberships       TenantMembership[]
   invitations       Invitation[]

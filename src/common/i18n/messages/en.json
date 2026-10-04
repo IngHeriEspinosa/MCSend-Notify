@@ -124,7 +124,9 @@
       "BLOCKING_ISSUES": "The campaign has errors that prevent sending.",
       "UNEXPECTED": "Unexpected error during the run.",
       "WEBHOOK_LIMIT": "The maximum of 10 webhook endpoints was reached.",
-      "IMAGE_UNAVAILABLE": "The image could not be retrieved: check that the URL is a public https URL pointing to a JPEG, PNG, GIF or WebP up to 5 MB, or that the document is ready."
+      "IMAGE_UNAVAILABLE": "The image could not be retrieved: check that the URL is a public https URL pointing to a JPEG, PNG, GIF or WebP up to 5 MB, or that the document is ready.",
+      "TRACKING_DOMAIN_INVALID": "Enter a valid public subdomain, for example click.yourcompany.com (no https:// or paths). IP addresses and the platform domain are not allowed.",
+      "TRACKING_DOMAIN_TAKEN": "That domain is already used by another application."
     }
   },
   "Auth": {
@@ -1410,6 +1412,32 @@
       "PENDING": "Retrying",
       "SUCCEEDED": "Delivered",
       "FAILED": "Failed"
+    }
+  },
+  "TrackingDomain": {
+    "title": "Tracking domain",
+    "subtitle": "Use a domain of your application in email links (opens, clicks, unsubscribes, thumbnails and downloads). It improves trust and deliverability.",
+    "domain": "Domain",
+    "domainHint": "Use a dedicated subdomain and create a CNAME record pointing to {target} in your DNS.",
+    "save": "Save and verify",
+    "verified": "Verified",
+    "pending": "Not verified",
+    "checkedAt": "Last check: {date}",
+    "inUse": "New emails use this domain. If the CNAME disappears, the platform domain is used again automatically.",
+    "notChecked": "Not checked yet. Create the record and click Verify.",
+    "instructions": "DNS record to create (propagation can take up to 48 hours):",
+    "recordName": "Name",
+    "recordType": "Type",
+    "recordValue": "Value",
+    "verify": "Verify",
+    "remove": "Remove domain",
+    "removeTitle": "Remove the tracking domain?",
+    "removeBody": "New emails will use the platform domain. Links in emails already sent with this domain will stop working.",
+    "none": "This application uses the platform domain.",
+    "errors": {
+      "CNAME_MISSING": "The CNAME record was not found. Create it and verify again.",
+      "CNAME_MISMATCH": "The CNAME points to another target. It must point to the platform domain.",
+      "DNS_ERROR": "DNS could not be queried. Try again in a few minutes."
     }
   }
 }

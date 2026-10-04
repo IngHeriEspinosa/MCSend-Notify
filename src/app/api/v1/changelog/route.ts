@@ -10,6 +10,7 @@
 import type { NextRequest } from 'next/server';
 import { z } from 'zod';
 import { authenticateApiRequest, errorResponse } from '@/app/_server/api-guards';
+import { isBodyTooLargeError, readJsonBody } from '@/common/utils/read-body';
 import { changelogEntryInputSchema } from '@/core/changelog/changelog';
 import { isDomainError } from '@/core/shared/domain-error';
 import { getLogger } from '@/infrastructure/container';
@@ -48,13 +49,11 @@ export async function GET(request: NextRequest) {
 export async function POST(request: NextRequest) {
   try {
     const context = await authenticateApiRequest(request);
-    if (Number(request.headers.get('content-length') ?? '0') > MAX_BODY_BYTES) {
-      return errorResponse('PAYLOAD_TOO_LARGE');
-    }
-    const input = changelogEntryInputSchema.parse(await request.json());
+    const input = changelogEntryInputSchema.parse(await readJsonBody(request, MAX_BODY_BYTES));
     const { entry, created } = await useCases.changelog().publish(context, input);
     return Response.json({ data: { id: entry.id, created } }, { status: created ? 201 : 200 });
   } catch (error) {
+    if (isBodyTooLargeError(error)) return errorResponse('PAYLOAD_TOO_LARGE');
     if (error instanceof SyntaxError) return errorResponse('BAD_REQUEST');
     return handleError(error);
   }
